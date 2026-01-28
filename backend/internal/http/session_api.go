@@ -22,6 +22,16 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, _ := service.ListSessions(s.db)
-	json.NewEncoder(w).Encode(sessions)
+	// Get local sessions from database
+	localSessions, _ := service.ListSessions(s.db)
+	
+	// Get sessions from all devices on the LAN
+	allSessions := s.sessionDiscovery.GetAllSessions(localSessions)
+	
+	json.NewEncoder(w).Encode(allSessions)
+}
+
+func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
+	devices := s.sessionDiscovery.GetDiscoveredDevices()
+	json.NewEncoder(w).Encode(devices)
 }
