@@ -17,6 +17,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -42,7 +43,8 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	h, err := initLibp2pHost(ctx, relayAddrStr)
+	// Initialize host with Identity (Private Key)
+	h, relayPeerID, err := initLibp2pHost(ctx, relayAddrStr)
 	if err != nil {
 		log.Fatal("Failed to initialize libp2p: ", err)
 	}
@@ -51,9 +53,10 @@ func main() {
 	deviceID := h.ID().String()
 	log.Printf("🚀 Starting 0Xnet | PeerID: %s", deviceID)
 
-	sessionDiscovery := discovery.NewSessionDiscovery(h)
+	sessionDiscovery := discovery.NewSessionDiscovery(h, relayPeerID)
 	sessionDiscovery.StartDiscovery()
 
+	// Protocol for syncing sessions between peers
 	h.SetStreamHandler("/0xnet/session-sync/1.0.0", func(s network.Stream) {
 		log.Printf("📥 Incoming session sync request from: %s", s.Conn().RemotePeer())
 		localSessions, _ := service.ListSessions(dbConn)
@@ -79,39 +82,56 @@ func main() {
 	server.Start()
 }
 
-func initLibp2pHost(ctx context.Context, relayAddr string) (host.Host, error) {
-	h, err := libp2p.New(
+func initLibp2pHost(ctx context.Context, relayAddr string) (host.Host, peer.ID, error) {
+	// Load Identity from .env
+	var privKey crypto.PrivKey
+	if privKeyStr := os.Getenv("PRIVATE_KEY"); privKeyStr != "" {
+		keyBytes, err := crypto.ConfigDecodeKey(privKeyStr)
+		if err != nil {
+			log.Printf("⚠️ Invalid PRIVATE_KEY format: %v", err)
+		} else {
+			privKey, _ = crypto.UnmarshalPrivateKey(keyBytes)
+		}
+	}
+
+	opts := []libp2p.Option{
 		libp2p.ChainOptions(
 			libp2p.Transport(tcp.NewTCPTransport),
 			libp2p.Transport(websocket.New),
 		),
 		libp2p.ListenAddrStrings("/ip4/0.0.0.0/tcp/0"),
 		libp2p.EnableRelay(),
-	)
+	}
+
+	if privKey != nil {
+		opts = append(opts, libp2p.Identity(privKey))
+	}
+
+	h, err := libp2p.New(opts...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	ma, _ := multiaddr.NewMultiaddr(relayAddr)
 	relayInfo, _ := peer.AddrInfoFromP2pAddr(ma)
 
 	if err := h.Connect(ctx, *relayInfo); err != nil {
-		return nil, fmt.Errorf("relay connection failed: %w", err)
+		return nil, "", fmt.Errorf("relay connection failed: %w", err)
 	}
 
-	log.Println("⌛ Connection established. Stabilizing for 5 seconds...")
+	log.Println("⌛ Connection established. Stabilizing...")
 	time.Sleep(5 * time.Second)
 
-	var reservation *client.Reservation
+	// Reserve slot on the Relay
 	for i := 1; i <= 5; i++ {
-		reservation, err = client.Reserve(ctx, h, *relayInfo)
+		reservation, err := client.Reserve(ctx, h, *relayInfo)
 		if err == nil {
 			log.Printf("✅ SUCCESS! Reserved slot until: %s", reservation.Expiration)
-			return h, nil
+			return h, relayInfo.ID, nil
 		}
-		log.Printf("⚠️ Attempt %d: Reservation refused (%v). Retrying in 5s...", i, err)
+		log.Printf("⚠️ Attempt %d: Reservation failed (%v). Retrying...", i, err)
 		time.Sleep(5 * time.Second)
 	}
 
-	return nil, fmt.Errorf("relay reservation failed: %w", err)
+	return nil, "", fmt.Errorf("relay reservation failed")
 }
