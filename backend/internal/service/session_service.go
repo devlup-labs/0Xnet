@@ -38,3 +38,19 @@ func ListSessions(db *sql.DB) ([]models.Session, error) {
 	}
 	return sessions, nil
 }
+
+func DeleteSession(db *sql.DB, sessionID, hostID string) error {
+	// Verify the session belongs to this host before deleting
+	var existingHostID string
+	err := db.QueryRow("SELECT host_id FROM sessions WHERE id = ?", sessionID).Scan(&existingHostID)
+	if err != nil {
+		return err
+	}
+	
+	if existingHostID != hostID {
+		return sql.ErrNoRows // Not authorized
+	}
+	
+	_, err = db.Exec("DELETE FROM sessions WHERE id = ?", sessionID)
+	return err
+}
