@@ -28,40 +28,36 @@ func NewServer(db *sql.DB, deviceID string, sessionDiscovery *discovery.SessionD
 }
 
 func (s *Server) Start() {
-	// Unified Session Router
-	http.HandleFunc("/session/", func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/session/create":
-			if r.Method == http.MethodPost { s.createSession(w, r) } else { http.Error(w, "Use POST", 405) }
-		case "/session/list":
-			if r.Method == http.MethodGet { s.listSessions(w, r) } else { http.Error(w, "Use GET", 405) }
-		case "/session/delete":
-			if r.Method == http.MethodPost { s.deleteSession(w, r) } else { http.Error(w, "Use POST", 405) }
-		default:
-			http.NotFound(w, r)
-		}
-	})
+	// Existing session handlers
+	http.HandleFunc("/session/create", s.createSession)
+	http.HandleFunc("/session/list", s.listSessions)
+	http.HandleFunc("/session/delete", s.deleteSession)
 
-	// Devices Router
+	// Updated Devices handler
 	http.HandleFunc("/devices", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+
+		// 1. Get discovered peers
 		devices := s.sessionDiscovery.GetDiscoveredDevices()
-		me := &discovery.DiscoveredDevice{DeviceID: s.deviceID + " (Me)"}
+
+		// 2. Add "Self" to the list so you can see your own PeerID
+		me := &discovery.DiscoveredDevice{
+			DeviceID: s.deviceID + " (Me)",
+		}
 		
+		allDevices := append([]*discovery.DiscoveredDevice{me}, devices...)
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(append([]*discovery.DiscoveredDevice{me}, devices...))
+		json.NewEncoder(w).Encode(allDevices)
 	})
 
 	http.HandleFunc("/ws", websocket.ServeWS)
 
-	log.Printf("🌍 0Xnet API active on port %d", s.port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", s.port), nil))
+	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
+	log.Printf("🌍 API Server listening on %s\n", addr)
+	log.Printf("🔗 Check your devices at: http://localhost:%d/devices\n", s.port)
+	log.Fatal(http.ListenAndServe(addr, nil))
 }
-
-// Ensure these functions in your code DO NOT check for r.Method anymore
-func (s *Server) createSession(w http.ResponseWriter, r *http.Request) { /* DB logic only */ }
-func (s *Server) listSessions(w http.ResponseWriter, r *http.Request)   { /* DB logic only */ }
-func (s *Server) deleteSession(w http.ResponseWriter, r *http.Request) { /* DB logic only */ }

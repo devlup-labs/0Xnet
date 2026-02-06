@@ -1,0 +1,3 @@
+2026/02/06 12:31:34 Failed to initialize libp2p: relay connection failed: failed to dial: failed to dial 12D3KooWC4hv9M6ptmuTEjj4WJb9wMb6WLgFrPNPY3AdmbVXwCtw: all dials failed
+  * [/ip4/216.24.57.7/tcp/443/tls/sni/zeroxnet-relay-server-2svk.onrender.com/ws] read tcp 172.31.81.2:56407->216.24.57.7:443: i/o timeout
+  * [/ip4/216.24.57.251/tcp/443/tls/sni/zeroxnet-relay-server-2svk.onrender.com/ws] read tcp 172.31.81.2:56408->216.24.57.251:443: i/o timeout
