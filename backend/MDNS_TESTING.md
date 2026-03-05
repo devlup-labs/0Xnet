@@ -59,7 +59,8 @@ go run ./cmd/app/main.go
 **Terminal 3** - Test the API:
 ```bash
 # Create session on device 1
-curl -X POST http://localhost:8080/session/create -H "Content-Type: application/json" -d '{"name":"Session from Device 1"}'
+curl -X POST http://localhost:8080/session/create -H "Content-Type: application/json" -d '{"name":"Session from Device 1"}'`
+
 
 # Create session on device 2
 curl -X POST http://localhost:8081/session/create -H "Content-Type: application/json" -d '{"name":"Session from Device 2"}'
