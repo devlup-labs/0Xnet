@@ -29,34 +29,15 @@ func NewServer(db *sql.DB, deviceID string, sessionDiscovery *discovery.SessionD
 }
 
 func (s *Server) Start() {
-	// Unified Session Router
-	http.HandleFunc("/session/", func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/session/create":
-			if r.Method == http.MethodPost {
-				s.createSession(w, r)
-			} else {
-				http.Error(w, "Use POST", 405)
-			}
-		case "/session/list":
-			if r.Method == http.MethodGet {
-				s.listSessions(w, r)
-			} else {
-				http.Error(w, "Use GET", 405)
-			}
-		case "/session/delete":
-			if r.Method == http.MethodPost {
-				s.deleteSession(w, r)
-			} else {
-				http.Error(w, "Use POST", 405)
-			}
-		default:
-			http.NotFound(w, r)
+	http.HandleFunc("/session/create", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
 		}
+		s.createSession(w, r)
 	})
 
-	// Devices Router
-	http.HandleFunc("/devices", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/session/list", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -90,35 +71,41 @@ func (s *Server) Start() {
 		json.NewEncoder(w).Encode(append([]*discovery.DiscoveredDevice{me}, devices...))
 	})
 
-	// Register device via HTTP (useful for browser clients)
-	http.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var body struct {
-			DeviceID string `json:"device_id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, "invalid body", http.StatusBadRequest)
-			return
-		}
-
-		if body.DeviceID == "" {
-			http.Error(w, "device_id required", http.StatusBadRequest)
-			return
-		}
-
-		// register on discovery
-		s.sessionDiscovery.RegisterDevice(body.DeviceID)
-
+	http.HandleFunc("/devices", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+
+		if r.Method == http.MethodGet {
+			// List all discovered devices
+			devices := s.sessionDiscovery.GetDiscoveredDevices()
+			me := &discovery.DiscoveredDevice{DeviceID: s.deviceID + " (Me)"}
+			json.NewEncoder(w).Encode(append([]*discovery.DiscoveredDevice{me}, devices...))
+			return
+		}
+
+		if r.Method == http.MethodPost {
+			// Register a new device
+			var body struct {
+				DeviceID string `json:"device_id"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				http.Error(w, "invalid body", http.StatusBadRequest)
+				return
+			}
+			if body.DeviceID == "" {
+				http.Error(w, "device_id required", http.StatusBadRequest)
+				return
+			}
+			s.sessionDiscovery.RegisterDevice(body.DeviceID)
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			return
+		}
+
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	})
 
 	http.HandleFunc("/ws", websocket.ServeWS)
 
-	log.Printf("🌍 0Xnet API active on port %d", s.port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", s.port), nil))
+	addr := fmt.Sprintf("0.0.0.0:%d", s.port)
+	log.Printf("Server listening on %s\n", addr)
+	http.ListenAndServe(addr, nil)
 }

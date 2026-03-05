@@ -18,6 +18,8 @@ import (
 
 type DiscoveredDevice struct {
 	DeviceID string `json:"device_id"`
+	Host     string `json:"host,omitempty"`
+	Port     int    `json:"port,omitempty"`
 }
 
 type SessionDiscovery struct {
@@ -26,12 +28,11 @@ type SessionDiscovery struct {
 	devices       map[peer.ID]*DiscoveredDevice
 	mutex         sync.RWMutex
 	dht           *dht.IpfsDHT
-	relayPeer     peer.ID
 	// localDevices holds devices registered via HTTP or non-libp2p clients
 	localDevices map[string]*DiscoveredDevice
 }
 
-func NewSessionDiscovery(h host.Host, relayPeerID peer.ID) *SessionDiscovery {
+func NewSessionDiscovery(h host.Host) *SessionDiscovery {
 	kademliaDHT, err := dht.New(context.Background(), h, dht.Mode(dht.ModeClient))
 	if err != nil {
 		log.Printf("❌ Failed to create DHT: %v", err)
@@ -42,7 +43,6 @@ func NewSessionDiscovery(h host.Host, relayPeerID peer.ID) *SessionDiscovery {
 		localDeviceID: h.ID().String(),
 		devices:       make(map[peer.ID]*DiscoveredDevice),
 		dht:           kademliaDHT,
-		relayPeer:     relayPeerID,
 		localDevices:  make(map[string]*DiscoveredDevice),
 	}
 }
@@ -61,7 +61,7 @@ func (sd *SessionDiscovery) StartDiscovery() {
 	sd.host.Network().Notify(&network.NotifyBundle{
 		ConnectedF: func(n network.Network, conn network.Conn) {
 			pID := conn.RemotePeer()
-			if pID == sd.host.ID() || pID == sd.relayPeer {
+			if pID == sd.host.ID() {
 				return
 			}
 			sd.mutex.Lock()
@@ -95,7 +95,7 @@ func (sd *SessionDiscovery) StartDiscovery() {
 			peerChan, err := routingDiscovery.FindPeers(ctx, "0xnet-global-v1")
 			if err == nil {
 				for p := range peerChan {
-					if p.ID == sd.host.ID() || p.ID == "" || p.ID == sd.relayPeer {
+					if p.ID == sd.host.ID() || p.ID == "" {
 						continue
 					}
 					sd.host.Connect(ctx, p)
@@ -128,6 +128,25 @@ func (sd *SessionDiscovery) RegisterDevice(id string) {
 	sd.mutex.Lock()
 	defer sd.mutex.Unlock()
 	sd.localDevices[id] = &DiscoveredDevice{DeviceID: id}
+}
+
+// RegisterDeviceWithAddr registers a device with its network address.
+func (sd *SessionDiscovery) RegisterDeviceWithAddr(id, host string, port int) {
+	sd.mutex.Lock()
+	defer sd.mutex.Unlock()
+	sd.localDevices[id] = &DiscoveredDevice{DeviceID: id, Host: host, Port: port}
+}
+
+// UnregisterDevice removes a device from the local device list (e.g. stale mDNS entries).
+func (sd *SessionDiscovery) UnregisterDevice(id string) {
+	sd.mutex.Lock()
+	defer sd.mutex.Unlock()
+	delete(sd.localDevices, id)
+}
+
+// GetLocalDeviceID returns this node's own device ID so callers can skip self.
+func (sd *SessionDiscovery) GetLocalDeviceID() string {
+	return sd.localDeviceID
 }
 
 // HandleIncomingSessionRequest is the responder for when OTHER peers call you
