@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About | 0Xnet</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --lightest: #CBC9CC;
+      --light-purple: #9C90AA;
+      --mid-purple: #6E6189;
+      --medium-dark: #443A67;
+      --dark-navy: #211E46;
+      --very-dark: #0A0B24;
+      --near-black: #000003;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Sora', sans-serif;
+    }
+
+    body {
+      background: var(--near-black);
+      color: var(--lightest);
+      line-height: 2;
+      padding: 60px 8%;
+    }
+
+    /* NAVBAR */
+    .navbar {
+      position: relative;
+      padding: 1.3rem 3rem;
+      background: rgba(0,0,3,0.88);
+      border-bottom: 1px solid rgba(110,97,137,0.15);
+      margin-bottom: 50px;
+    }
+
+    /* 🔥 Logo slightly bigger */
+    .logo {
+      font-size: 2rem;
+      font-weight: 700;
+      text-decoration: none;
+      color: var(--lightest);
+      letter-spacing: 0.08em;
+    }
+
+    .logo span {
+      color: var(--mid-purple);
+    }
+
+    /* SECTIONS */
+    .section-box {
+      border: 1px solid var(--mid-purple);
+      padding: 30px;
+      margin-bottom: 60px;
+      background: var(--very-dark);
+    }
+
+    h1 {
+      font-size: 3rem;
+      margin-bottom: 20px;
+    }
+
+    h2 {
+      font-size: 2.5rem;
+      color: var(--light-purple);
+    }
+
+    .intro-text {
+      max-width: 800px;
+      font-size: 1.2rem;
+    }
+
+    .tagline {
+      font-size: 3rem;
+      line-height: 1.3;
+    }
+
+    .tagline span {
+      color: var(--mid-purple);
+    }
+
+    /* FEATURES */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 20px;
+    }
+
+    .feature-card {
+      background: var(--dark-navy);
+      border: 1px solid var(--medium-dark);
+      padding: 25px;
+      transition: 0.3s ease;
+    }
+
+    .feature-card:hover {
+      background: var(--medium-dark);
+      transform: translateY(-5px);
+    }
+
+    .feature-card h3 {
+      margin-bottom: 15px;
+      color: var(--light-purple);
+      font-size: 1.2rem;
+    }
+
+    .feature-card p {
+      font-size: 0.95rem;
+    }
+
+    footer {
+      margin-top: 60px;
+      text-align: center;
+      color: var(--light-purple);
+      font-size: 0.9rem;
+    }
+
+    @media (max-width: 768px) {
+      h1 { font-size: 2.2rem; }
+      h2 { font-size: 1.8rem; }
+      .tagline { font-size: 2rem; }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- NAVBAR -->
+  <nav class="navbar">
+    <a href="index.html" class="logo">OX<span>NET</span></a>
+  </nav>
+
+  <!-- INTRO -->
+  <div class="section-box">
+    <h1>INTRODUCTION</h1>
+    <p class="intro-text">
+      0Xnet is a decentralized networking platform built for seamless connectivity 
+      and secure communication over LAN. Designed for speed, reliability, and privacy —
+      making collaboration faster, smarter, and truly efficient.
+    </p>
+  </div>
+
+  <!-- TAGLINE -->
+  <div class="section-box">
+    <h2 class="tagline">
+      One platform.<br />
+      <span>Endless ways to work together.</span>
+    </h2>
+  </div>
+
+  <!-- FEATURES -->
+  <div class="features">
+
+    <div class="feature-card">
+      <h3>Zero Internet</h3>
+      <p>Works entirely without an internet connection.</p>
+    </div>
+
+    <div class="feature-card">
+      <h3>Chat</h3>
+      <p>Fast, secure encrypted chat rooms.</p>
+    </div>
+
+    <div class="feature-card">
+      <h3>Video Stream</h3>
+      <p>Smooth video streaming across LAN.</p>
+    </div>
+
+    <div class="feature-card">
+      <h3>Video Call</h3>
+      <p>Low latency encrypted video calls.</p>
+    </div>
+
+    <div class="feature-card">
+      <h3>File Transfer</h3>
+      <p>Share files instantly over local network.</p>
+    </div>
+
+  </div>
+
+  <footer>
+    © 2026 0Xnet. Built for secure local collaboration.
+  </footer>
+
+</body>
+</html>

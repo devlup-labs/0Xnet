@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OXNET — Offline LAN Connect</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- NAVBAR -->
+  <nav class="navbar">
+    <a href="#" class="logo">OX<span>NET</span></a>
+
+    <!-- Profile Dropdown Button -->
+    <div class="profile-menu-wrap" id="profileMenuWrap">
+      <button class="profile-btn" id="profileBtn" aria-expanded="false" aria-label="Profile menu">
+        <div class="profile-avatar" id="profileAvatar">A</div>
+        <span class="profile-btn-name" id="profileBtnName">Anonymous</span>
+        <span class="profile-chevron" id="profileChevron">▾</span>
+      </button>
+
+      <div class="profile-dropdown" id="profileDropdown">
+
+        <!-- Avatar + name -->
+        <div class="profile-dropdown-header">
+          <div class="profile-dropdown-avatar" id="profileDropdownAvatar">A</div>
+          <div class="profile-dropdown-edit">
+            <label class="profile-edit-label">Username</label>
+            <div class="profile-edit-row">
+              <input type="text" class="profile-name-input" id="profileNameInput" value="Anonymous" maxlength="24" spellcheck="false" />
+              <button class="profile-save-btn" id="profileSaveBtn" title="Save">✓</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="profile-dropdown-divider"></div>
+
+        <!-- Device info -->
+        <div class="profile-device-section">
+          <div class="profile-device-row">
+            <div class="profile-device-icon">⊞</div>
+            <div class="profile-device-content">
+              <span class="profile-device-label">Device ID</span>
+              <span class="profile-device-val" id="deviceId">Generating...</span>
+            </div>
+          </div>
+          <div class="profile-device-row">
+            <div class="profile-device-icon">⊛</div>
+            <div class="profile-device-content">
+              <span class="profile-device-label">LAN Address</span>
+              <div class="profile-lan-inner">
+                <span class="profile-device-val" id="lanAddress">Scanning...</span>
+                <span class="profile-lan-dot" id="profileStatusDot"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="profile-dropdown-divider"></div>
+
+        <!-- Nav links -->
+        <div class="profile-dropdown-links">
+          <a href="#" class="profile-dropdown-link" id="settingsToggle">
+            <span class="pdl-icon">⚙</span>
+            <span class="pdl-text">Settings</span>
+            <span class="pdl-arrow">→</span>
+          </a>
+<a href="about.html" class="profile-dropdown-link">
+            <span class="pdl-icon">◎</span>
+            <span class="pdl-text">About</span>
+            <span class="pdl-arrow">→</span>
+          </a>
+        </div>
+
+      </div>
+    </div>
+  </nav>
+
+  <!-- SETTINGS SIDE PANEL -->
+  <div class="settings-overlay" id="settingsOverlay"></div>
+  <aside class="settings-panel" id="settingsPanel">
+    <div class="settings-header">
+      <div>
+        <span class="settings-eyebrow">OXNET</span>
+        <h2 class="settings-title">Settings</h2>
+      </div>
+      <button class="settings-close" id="settingsClose">✕</button>
+    </div>
+
+    <div class="settings-body">
+
+      <div class="settings-group">
+        <div class="settings-group-label">Network</div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <span class="settings-item-name">Auto-Scan Devices</span>
+            <span class="settings-item-desc">Automatically discover LAN devices on startup</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" checked />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <span class="settings-item-name">Broadcast Mode</span>
+            <span class="settings-item-desc">Make your device visible to others on the network</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" checked />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <span class="settings-item-name">Scan Interval</span>
+            <span class="settings-item-desc">How often to scan for new devices</span>
+          </div>
+          <select class="settings-select">
+            <option>Every 5s</option>
+            <option selected>Every 10s</option>
+            <option>Every 30s</option>
+            <option>Manual only</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-label">Sessions</div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <span class="settings-item-name">Max Session Size</span>
+            <span class="settings-item-desc">Maximum devices per session</span>
+          </div>
+          <select class="settings-select">
+            <option>4 devices</option>
+            <option selected>8 devices</option>
+            <option>16 devices</option>
+            <option>32 devices</option>
+          </select>
+        </div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <span class="settings-item-name">Auto-Close Idle Sessions</span>
+            <span class="settings-item-desc">Remove sessions with no active devices</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <span class="settings-item-name">Session Encryption</span>
+            <span class="settings-item-desc">End-to-end encrypt all session traffic</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" checked />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-label">Appearance</div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <span class="settings-item-name">Animations</span>
+            <span class="settings-item-desc">Enable UI transitions and effects</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" checked />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+        <div class="settings-item">
+          <div class="settings-item-info">
+            <span class="settings-item-name">Compact Mode</span>
+            <span class="settings-item-desc">Reduce spacing for denser information view</span>
+          </div>
+          <label class="toggle">
+            <input type="checkbox" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+          </label>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <div class="settings-group-label">Danger Zone</div>
+        <div class="settings-danger">
+          <button class="btn-danger">Reset All Settings</button>
+          <button class="btn-danger">Clear Session History</button>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="settings-footer">
+      <span class="settings-version">OXNET v1.0.0 — Offline Build</span>
+      <button class="btn-settings-save" id="settingsSave">Save Changes</button>
+    </div>
+  </aside>
+
+  <!-- MAIN LAYOUT -->
+  <div class="layout">
+
+    <!-- LEFT + CENTER CONTENT -->
+    <main class="main-content">
+
+      <!-- HERO -->
+      <section class="hero" id="hero">
+        <div class="hero-badge">● OFFLINE READY</div>
+        <h1 class="hero-title">OX<span>NET</span></h1>
+        <p class="hero-sub">No Internet, Just Connection.<br>Connect devices instantly — offline.</p>
+        <button class="btn-create" id="createSessionBtn">
+          <span class="btn-icon">⊕</span> Create Session
+        </button>
+      </section>
+
+      <!-- SESSIONS -->
+      <section class="sessions-section" id="sessions">
+        <h2 class="section-title">Available Sessions</h2>
+
+        <div class="sessions-scroll-wrap" id="sessionsScrollWrap">
+          <div class="sessions-banner" id="sessionsGrid">
+
+            <div class="session-row" data-session="1">
+              <div class="session-indicator"></div>
+              <div class="session-main-info">
+                <span class="session-name">Team Alpha</span>
+                <span class="session-host">Host: alex_dev</span>
+              </div>
+              <div class="session-divider"></div>
+              <div class="session-users">
+                <span class="session-users-icon">⊹</span>
+                <span class="session-users-count">3 users</span>
+              </div>
+              <button class="btn-join">Join →</button>
+            </div>
+
+            <div class="session-row" data-session="2">
+              <div class="session-indicator"></div>
+              <div class="session-main-info">
+                <span class="session-name">Project Nexus</span>
+                <span class="session-host">Host: maya_k</span>
+              </div>
+              <div class="session-divider"></div>
+              <div class="session-users">
+                <span class="session-users-icon">⊹</span>
+                <span class="session-users-count">1 user</span>
+              </div>
+              <button class="btn-join">Join →</button>
+            </div>
+
+            <div class="session-row" data-session="3">
+              <div class="session-indicator"></div>
+              <div class="session-main-info">
+                <span class="session-name">LAN Party #7</span>
+                <span class="session-host">Host: rx_ghost</span>
+              </div>
+              <div class="session-divider"></div>
+              <div class="session-users">
+                <span class="session-users-icon">⊹</span>
+                <span class="session-users-count">8 users</span>
+              </div>
+              <button class="btn-join">Join →</button>
+            </div>
+
+            <div class="session-row" data-session="4">
+              <div class="session-indicator"></div>
+              <div class="session-main-info">
+                <span class="session-name">Dev Sync</span>
+                <span class="session-host">Host: zara_sys</span>
+              </div>
+              <div class="session-divider"></div>
+              <div class="session-users">
+                <span class="session-users-icon">⊹</span>
+                <span class="session-users-count">5 users</span>
+              </div>
+              <button class="btn-join">Join →</button>
+            </div>
+
+            <!-- Extra sessions (shown after View More) -->
+            <div class="session-row extra-session" data-session="5">
+              <div class="session-indicator"></div>
+              <div class="session-main-info">
+                <span class="session-name">Mesh Node B</span>
+                <span class="session-host">Host: netrunner</span>
+              </div>
+              <div class="session-divider"></div>
+              <div class="session-users">
+                <span class="session-users-icon">⊹</span>
+                <span class="session-users-count">2 users</span>
+              </div>
+              <button class="btn-join">Join →</button>
+            </div>
+
+            <div class="session-row extra-session" data-session="6">
+              <div class="session-indicator"></div>
+              <div class="session-main-info">
+                <span class="session-name">Ops Room</span>
+                <span class="session-host">Host: t_minus</span>
+              </div>
+              <div class="session-divider"></div>
+              <div class="session-users">
+                <span class="session-users-icon">⊹</span>
+                <span class="session-users-count">4 users</span>
+              </div>
+              <button class="btn-join">Join →</button>
+            </div>
+
+            <div class="session-row extra-session" data-session="7">
+              <div class="session-indicator"></div>
+              <div class="session-main-info">
+                <span class="session-name">Beacon Hub</span>
+                <span class="session-host">Host: vox_lan</span>
+              </div>
+              <div class="session-divider"></div>
+              <div class="session-users">
+                <span class="session-users-icon">⊹</span>
+                <span class="session-users-count">7 users</span>
+              </div>
+              <button class="btn-join">Join →</button>
+            </div>
+
+            <div class="session-row extra-session" data-session="8">
+              <div class="session-indicator"></div>
+              <div class="session-main-info">
+                <span class="session-name">Silent Wire</span>
+                <span class="session-host">Host: null_ptr</span>
+              </div>
+              <div class="session-divider"></div>
+              <div class="session-users">
+                <span class="session-users-icon">⊹</span>
+                <span class="session-users-count">2 users</span>
+              </div>
+              <button class="btn-join">Join →</button>
+            </div>
+
+            <div class="session-row extra-session" data-session="9">
+              <div class="session-indicator"></div>
+              <div class="session-main-info">
+                <span class="session-name">Grid Zero</span>
+                <span class="session-host">Host: dr_packet</span>
+              </div>
+              <div class="session-divider"></div>
+              <div class="session-users">
+                <span class="session-users-icon">⊹</span>
+                <span class="session-users-count">4 users</span>
+              </div>
+              <button class="btn-join">Join →</button>
+            </div>
+
+          </div>
+          <div class="sessions-fade" id="sessionsFade"></div>
+        </div>
+
+        <div class="sessions-view-more">
+          <button class="btn-view-more" id="viewMoreBtn">
+            <span id="viewMoreLabel">View More Sessions</span>
+            <span class="view-more-icon" id="viewMoreIcon">↓</span>
+          </button>
+        </div>
+
+      </section>
+
+  <!-- CREATE SESSION MODAL -->
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal">
+      <button class="modal-close" id="modalClose">✕</button>
+      <h2>Create New Session</h2>
+      <p>Start a new offline session on your LAN.</p>
+      <div class="modal-field">
+        <label>Session Name</label>
+        <input type="text" placeholder="e.g. Team Alpha" />
+      </div>
+      <div class="modal-field">
+        <label>Max Devices</label>
+        <input type="number" placeholder="8" min="2" max="32" />
+      </div>
+      <button class="btn-create-modal">Launch Session</button>
+    </div>
+  </div>
+
+  <script src="Script.js"></script>
+</body>
+</html>

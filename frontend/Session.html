@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'self'" />
+  <title>OXNET — Session</title>
+  <link rel="stylesheet" href="session.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+
+  <!-- ╔══════════════════════╗
+       ║       TOP BAR        ║
+       ╚══════════════════════╝ -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="topbar-logo" id="btnBackHome">OX<span>NET</span></button>
+      <div class="session-badge">
+        <span class="session-dot"></span>
+        <span class="session-badge-name" id="sessionBadgeName">Team Alpha</span>
+        <span class="session-badge-live">LIVE</span>
+      </div>
+    </div>
+    <div class="topbar-center">
+      <div class="session-timer">
+        <span class="timer-icon">◷</span>
+        <span id="sessionDuration">00:00</span>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-clock" id="topbarClock">00:00 AM</div>
+      <div class="role-badge" id="roleBadge">HOST</div>
+    </div>
+  </header>
+
+  <!-- ╔══════════════════════╗
+       ║   MAIN SESSION ROOT  ║
+       ╚══════════════════════╝ -->
+  <div class="session-root" id="sessionRoot">
+
+    <!-- ── STAGE (main video area) ── -->
+    <main class="stage" id="stage">
+      <div class="video-surface" id="videoSurface">
+
+        <!-- Live placeholder -->
+        <div class="live-placeholder" id="livePlaceholder">
+          <div class="pulse-rings">
+            <div class="ring r1"></div>
+            <div class="ring r2"></div>
+            <div class="ring r3"></div>
+            <div class="ring-center">⊹</div>
+          </div>
+          <p class="live-title">Session Active</p>
+          <p class="live-sub" id="liveSubText">LAN only · Waiting for stream</p>
+        </div>
+
+        <!-- Pre-recorded video player (hidden by default) -->
+        <div class="prerecorded-wrap hidden" id="prerecordedWrap">
+          <video id="prerecordedVideo" controls></video>
+          <div class="prerecorded-empty" id="prerecordedEmpty">
+            <div class="pe-icon">▶</div>
+            <p>No video loaded</p>
+            <p class="pe-sub">Click the Video button below to load a file</p>
+          </div>
+        </div>
+
+        <!-- Participant tiles (bottom-right overlay) -->
+        <div class="tiles-strip" id="tilesStrip">
+          <div class="tile self-tile">
+            <div class="tile-av" id="selfTileAv">Y</div>
+            <span class="tile-name">You</span>
+            <span class="tile-mic" id="selfTileMic">🎤</span>
+          </div>
+          <div class="tile">
+            <div class="tile-av">A</div>
+            <span class="tile-name">alex_dev</span>
+          </div>
+          <div class="tile">
+            <div class="tile-av">M</div>
+            <span class="tile-name">maya_k</span>
+          </div>
+        </div>
+
+      </div><!-- /.video-surface -->
+    </main>
+
+    <!-- ── RIGHT SLIDE PANEL ── -->
+    <aside class="right-panel" id="rightPanel">
+      <div class="rp-header">
+        <span class="rp-title" id="rpTitle">Chat</span>
+        <button class="rp-close" id="rpClose">✕</button>
+      </div>
+
+      <!-- CHAT -->
+      <section class="rp-body" id="rpChat">
+        <div class="chat-messages" id="chatMessages">
+          <div class="cmsg in">
+            <div class="cav">A</div>
+            <div class="cbody">
+              <div class="cmeta"><span class="cname">alex_dev</span><span class="ctime">12:31</span></div>
+              <div class="cbubble">Hey! Can everyone see the session? 👀</div>
+            </div>
+          </div>
+          <div class="cmsg out">
+            <div class="cbody">
+              <div class="cmeta"><span class="cname">You</span><span class="ctime">12:31</span></div>
+              <div class="cbubble">Yes, loud and clear 👍</div>
+            </div>
+            <div class="cav self">Y</div>
+          </div>
+          <div class="cmsg in">
+            <div class="cav">M</div>
+            <div class="cbody">
+              <div class="cmeta"><span class="cname">maya_k</span><span class="ctime">12:32</span></div>
+              <div class="cbubble">Joining now, one sec!</div>
+            </div>
+          </div>
+        </div>
+        <div class="chat-composer">
+          <input id="chatInput" class="chat-input" type="text" placeholder="Message the session…" maxlength="500" />
+          <button id="chatSendBtn" class="chat-send-btn">↑</button>
+        </div>
+      </section>
+
+      <!-- FILES -->
+      <section class="rp-body hidden" id="rpFiles">
+        <div class="drop-zone" id="fileDropZone">
+          <div class="dz-icon">⊞</div>
+          <p class="dz-label">Drop files or click to share</p>
+          <input type="file" id="fileInput" multiple hidden />
+        </div>
+        <div class="file-list" id="fileList">
+          <div class="file-row">
+            <span class="ficon">📄</span>
+            <div class="finfo"><span class="fname">project_brief.pdf</span><span class="fmeta">alex_dev · 2.4 MB</span></div>
+            <button class="fdl">↓</button>
+          </div>
+          <div class="file-row">
+            <span class="ficon">🖼</span>
+            <div class="finfo"><span class="fname">wireframe_v2.png</span><span class="fmeta">maya_k · 840 KB</span></div>
+            <button class="fdl">↓</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- MEMBERS -->
+      <section class="rp-body hidden" id="rpMembers">
+        <div class="members-title">
+          In this session
+          <span class="mc-badge" id="memberCountBadge">3</span>
+        </div>
+        <div class="members-list">
+          <div class="mrow self-mrow">
+            <div class="mav">Y</div>
+            <div class="minfo"><span class="mname">You</span><span class="mrole">Host</span></div>
+            <span class="monline"></span>
+          </div>
+          <div class="mrow">
+            <div class="mav">A</div>
+            <div class="minfo"><span class="mname">alex_dev</span><span class="mrole">Member</span></div>
+            <span class="monline"></span>
+          </div>
+          <div class="mrow">
+            <div class="mav">M</div>
+            <div class="minfo"><span class="mname">maya_k</span><span class="mrole">Member</span></div>
+            <span class="monline"></span>
+          </div>
+        </div>
+      </section>
+
+    </aside><!-- /.right-panel -->
+
+  </div><!-- /.session-root -->
+
+  <!-- ╔══════════════════════╗
+       ║   BOTTOM CONTROL BAR ║
+       ╚══════════════════════╝ -->
+  <footer class="control-bar">
+    <div class="cb-left">
+      <span class="cb-clock" id="cbClock">12:32 AM</span>
+    </div>
+
+    <div class="cb-center">
+
+      <!-- Mic -->
+      <div class="cgroup">
+        <button class="cbtn active" id="btnMic" title="Toggle Mic">
+          <span id="micIcon">🎤</span>
+        </button>
+        <span class="clabel">Mic</span>
+      </div>
+
+      <!-- Camera -->
+      <div class="cgroup">
+        <button class="cbtn active" id="btnCamera" title="Toggle Camera">
+          <span id="camIcon">📷</span>
+        </button>
+        <span class="clabel">Camera</span>
+      </div>
+
+      <!-- Screen share -->
+      <div class="cgroup">
+        <button class="cbtn" id="btnScreen" title="Share Screen">
+          <span id="screenIcon">🖥</span>
+        </button>
+        <span class="clabel">Screen</span>
+      </div>
+
+      <!-- Pre-recorded video -->
+      <div class="cgroup">
+        <button class="cbtn" id="btnPrerecorded" title="Play pre-recorded video">
+          <span>▶</span>
+        </button>
+        <span class="clabel">Video</span>
+      </div>
+
+      <!-- Divider -->
+      <div class="cb-sep"></div>
+
+      <!-- Hang Up -->
+      <div class="cgroup">
+        <button class="cbtn hangup-btn" id="btnHangup" title="Leave session">
+          <span>📵</span>
+        </button>
+        <span class="clabel">Hang Up</span>
+      </div>
+
+      <!-- Divider -->
+      <div class="cb-sep"></div>
+
+      <!-- Chat -->
+      <div class="cgroup">
+        <button class="cbtn panel-cbtn" id="btnChat" data-panel="chat" title="Chat">
+          <span>💬</span>
+          <span class="notif-dot hidden" id="chatNotif"></span>
+        </button>
+        <span class="clabel">Chat</span>
+      </div>
+
+      <!-- Files -->
+      <div class="cgroup">
+        <button class="cbtn panel-cbtn" id="btnFiles" data-panel="files" title="Files">
+          <span>📎</span>
+        </button>
+        <span class="clabel">Files</span>
+      </div>
+
+      <!-- Members -->
+      <div class="cgroup">
+        <button class="cbtn panel-cbtn" id="btnMembers" data-panel="members" title="Members">
+          <span>👥</span>
+        </button>
+        <span class="clabel">Members</span>
+      </div>
+
+    </div><!-- /.cb-center -->
+
+    <div class="cb-right">
+      <div class="net-status">
+        <span class="net-dot"></span>
+        <span class="net-label">LAN</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ╔══════════════════════╗
+       ║   HANG-UP MODAL      ║
+       ╚══════════════════════╝ -->
+  <div class="modal-bg" id="hangupModal">
+    <div class="modal-card">
+      <div class="modal-ico">📵</div>
+      <h2 class="modal-h">Leave Session?</h2>
+      <p class="modal-p">You will be disconnected from <strong id="hangupLabel">Team Alpha</strong>.</p>
+      <div class="modal-btns">
+        <button class="mbtn cancel" id="btnStay">Stay</button>
+        <button class="mbtn danger" id="btnLeave">Leave</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ╔══════════════════════╗
+       ║   VIDEO LOAD MODAL   ║
+       ╚══════════════════════╝ -->
+  <div class="modal-bg" id="videoModal">
+    <div class="modal-card">
+      <div class="modal-ico">🎬</div>
+      <h2 class="modal-h">Load Pre-recorded Video</h2>
+      <p class="modal-p">Choose a local video file to play in the session.</p>
+      <div class="modal-btns">
+        <button class="mbtn cancel" id="btnVideoCancel">Cancel</button>
+        <button class="mbtn accent" id="btnVideoBrowse">Browse File</button>
+        <input type="file" id="videoFileInput" accept="video/*" hidden />
+      </div>
+    </div>
+  </div>
+
+  <script src="session.js"></script>
+</body>
+</html>
