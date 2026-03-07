@@ -1,1 +1,17 @@
+# Node
+node_modules/
+
+# Electron builds
+out/
+dist/
+build/
+
+# Installer files
+*.exe
+*.nupkg
+*.zip
+
+# Logs
+*.log
+
 .env
