@@ -78,7 +78,7 @@ func (s *Server) Start() {
 				}
 			}
 			if !exists {
-				s.sessionDiscovery.RegisterDevice(deviceID)
+				s.sessionDiscovery.RegisterDevice(deviceID, host, 0)
 				log.Printf("Registered HTTP client device: %s", deviceID)
 			}
 		}
@@ -111,7 +111,7 @@ func (s *Server) Start() {
 		}
 
 		// register on discovery
-		s.sessionDiscovery.RegisterDevice(body.DeviceID)
+		s.sessionDiscovery.RegisterDevice(body.DeviceID, r.RemoteAddr, 0)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
