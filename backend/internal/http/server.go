@@ -50,6 +50,24 @@ func (s *Server) Start() {
 			} else {
 				http.Error(w, "Use POST", 405)
 			}
+		case "/session/join":
+			if r.Method == http.MethodPost {
+				s.joinSession(w, r)
+			} else {
+				http.Error(w, "Use POST", 405)
+			}
+		case "/session/leave":
+			if r.Method == http.MethodPost {
+				s.leaveSession(w, r)
+			} else {
+				http.Error(w, "Use POST", 405)
+			}
+		case "/session/members":
+			if r.Method == http.MethodGet {
+				s.getSessionMembers(w, r)
+			} else {
+				http.Error(w, "Use GET", 405)
+			}
 		default:
 			http.NotFound(w, r)
 		}
@@ -121,4 +139,5 @@ func (s *Server) Start() {
 
 	log.Printf("🌍 0Xnet API active on port %d", s.port)
 	log.Fatal(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", s.port), nil))
+
 }

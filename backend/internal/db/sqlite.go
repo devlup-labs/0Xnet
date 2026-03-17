@@ -30,6 +30,14 @@ func Connect() (*sql.DB, error) {
 		session_id TEXT,
 		device_id TEXT,
 		status TEXT
+	);
+
+	CREATE TABLE IF NOT EXISTS session_members (
+		id TEXT PRIMARY KEY,
+		session_id TEXT,
+		device_id TEXT,
+		device_name TEXT,
+		joined_at DATETIME
 	);`
 
 	_, err = db.Exec(schema)

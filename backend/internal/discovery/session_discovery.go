@@ -75,6 +75,14 @@ func (sd *SessionDiscovery) GetAllSessions(localSessions []models.Session) []mod
 	// Add local sessions
 	allSessions = append(allSessions, localSessions...)
 
+	// Add remote sessions
+	allSessions = append(allSessions, sd.GetRemoteSessions()...)
+
+	return allSessions
+}
+
+// GetRemoteSessions fetches sessions only from discovered remote devices
+func (sd *SessionDiscovery) GetRemoteSessions() []models.Session {
 	sd.mutex.RLock()
 	devices := make([]*DiscoveredDevice, 0, len(sd.devices))
 	for _, device := range sd.devices {
@@ -82,18 +90,27 @@ func (sd *SessionDiscovery) GetAllSessions(localSessions []models.Session) []mod
 	}
 	sd.mutex.RUnlock()
 
-	// Fetch sessions from each discovered device
+	log.Printf("📡 GetRemoteSessions: found %d discovered device(s) to query", len(devices))
+
+	remoteSessions := make([]models.Session, 0)
 	for _, device := range devices {
+		log.Printf("📡 Querying device: %s (addr=%s, port=%d)", device.DeviceID, device.Address, device.Port)
 		sessions := sd.fetchSessionsFromDevice(device)
-		allSessions = append(allSessions, sessions...)
+		log.Printf("📡 Got %d session(s) from %s", len(sessions), device.DeviceID)
+		remoteSessions = append(remoteSessions, sessions...)
 	}
 
-	return allSessions
+	log.Printf("📡 Total remote sessions: %d", len(remoteSessions))
+	return remoteSessions
 }
 
 // fetchSessionsFromDevice fetches sessions from a specific device via HTTP
 func (sd *SessionDiscovery) fetchSessionsFromDevice(device *DiscoveredDevice) []models.Session {
-	url := fmt.Sprintf("http://%s:%d/session/list", device.Address, device.Port)
+	// Skip devices with no valid port (e.g. browser clients registered with port 0)
+	if device.Port <= 0 {
+		return nil
+	}
+	url := fmt.Sprintf("http://%s:%d/session/list?source=local", device.Address, device.Port)
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,

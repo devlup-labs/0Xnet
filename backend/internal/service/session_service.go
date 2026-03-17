@@ -20,7 +20,14 @@ func CreateSession(db *sql.DB, name, hostID string) (*models.Session, error) {
 		"INSERT INTO sessions VALUES (?, ?, ?, ?)",
 		session.ID, session.Name, session.HostID, session.CreatedAt,
 	)
-	return session, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Auto-add the host as the first member of the session
+	_, _ = JoinSession(db, session.ID, hostID, "Host")
+
+	return session, nil
 }
 
 func ListSessions(db *sql.DB) ([]models.Session, error) {
@@ -46,11 +53,14 @@ func DeleteSession(db *sql.DB, sessionID, hostID string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if existingHostID != hostID {
 		return sql.ErrNoRows // Not authorized
 	}
-	
+
+	// Cascade: delete all members of this session first
+	_ = DeleteSessionMembers(db, sessionID)
+
 	_, err = db.Exec("DELETE FROM sessions WHERE id = ?", sessionID)
 	return err
 }
