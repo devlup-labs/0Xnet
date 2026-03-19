@@ -161,7 +161,7 @@ func StartSubnetDiscoveryLoop(ctx context.Context, sd *SessionDiscovery, port in
 	log.Println("🔍 Starting Subnet Sweep discovery...")
 	log.Printf("🌐 Scanning from local IP: %s on port %d", selfIP, port)
 
-	ticker := time.NewTicker(15 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
 	// Run an initial scan immediately

@@ -59,15 +59,20 @@ func (s *Server) leaveSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := service.LeaveSession(s.db, body.SessionID, body.DeviceID)
+	sessionDeleted, err := service.LeaveSession(s.db, body.SessionID, body.DeviceID)
 	if err != nil {
 		http.Error(w, "Failed to leave session: "+err.Error(), http.StatusNotFound)
 		return
 	}
 
+	status := "left"
+	if sessionDeleted {
+		status = "session_deleted"
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status": "left",
+		"status": status,
 	})
 }
 

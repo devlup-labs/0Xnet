@@ -2,11 +2,40 @@ package service
 
 import (
 	"database/sql"
+	"log"
 	"time"
 
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/models"
 	"github.com/google/uuid"
 )
+
+// CleanupStaleSessions removes all sessions (and their members) that don't
+// belong to the current deviceID. This handles the case where the server
+// restarted with a new deviceID but old sessions are still in the DB.
+func CleanupStaleSessions(db *sql.DB, currentDeviceID string) {
+	rows, err := db.Query("SELECT id FROM sessions WHERE host_id != ?", currentDeviceID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	var staleIDs []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			staleIDs = append(staleIDs, id)
+		}
+	}
+
+	for _, id := range staleIDs {
+		_ = DeleteSessionMembers(db, id)
+		db.Exec("DELETE FROM sessions WHERE id = ?", id)
+	}
+
+	if len(staleIDs) > 0 {
+		log.Printf("🧹 Cleaned up %d stale session(s) from previous runs", len(staleIDs))
+	}
+}
 
 func CreateSession(db *sql.DB, name, hostID string) (*models.Session, error) {
 	session := &models.Session{
@@ -30,8 +59,8 @@ func CreateSession(db *sql.DB, name, hostID string) (*models.Session, error) {
 	return session, nil
 }
 
-func ListSessions(db *sql.DB) ([]models.Session, error) {
-	rows, err := db.Query("SELECT id, name, host_id, created_at FROM sessions")
+func ListSessions(db *sql.DB, hostID string) ([]models.Session, error) {
+	rows, err := db.Query("SELECT id, name, host_id, created_at FROM sessions WHERE host_id = ? ORDER BY created_at DESC", hostID)
 	if err != nil {
 		return nil, err
 	}

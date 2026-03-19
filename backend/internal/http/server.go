@@ -2,15 +2,21 @@ package httpapi
 
 import (
 	"database/sql"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/discovery"
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/websocket"
 )
+
+func hashString(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
 
 type Server struct {
 	db               *sql.DB
@@ -80,32 +86,17 @@ func (s *Server) Start() {
 			return
 		}
 
-		// If a remote browser/mobile calls this endpoint, auto-register it
-		// so it shows up in the devices list for testing.
-		remoteAddr := r.RemoteAddr
-		if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
-			// Build a simple device id from the remote host
-			deviceID := "browser-" + host
-
-			// Check if already registered
-			exists := false
-			for _, d := range s.sessionDiscovery.GetDiscoveredDevices() {
-				if d.DeviceID == deviceID {
-					exists = true
-					break
-				}
-			}
-			if !exists {
-				s.sessionDiscovery.RegisterDevice(deviceID, host, 0)
-				log.Printf("Registered HTTP client device: %s", deviceID)
-			}
-		}
-
 		devices := s.sessionDiscovery.GetDiscoveredDevices()
-		me := &discovery.DiscoveredDevice{DeviceID: s.deviceID + " (Me)"}
+		// Hash device IDs for privacy/security
+		hashedDevices := make([]*discovery.DiscoveredDevice, 0, len(devices))
+		for _, d := range devices {
+			hashedID := hashString(d.DeviceID)
+			hashedDevices = append(hashedDevices, &discovery.DiscoveredDevice{DeviceID: hashedID, Address: d.Address, Port: d.Port})
+		}
+		meHashed := &discovery.DiscoveredDevice{DeviceID: hashString(s.deviceID) + " (Me)"}
 
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(append([]*discovery.DiscoveredDevice{me}, devices...))
+		json.NewEncoder(w).Encode(append([]*discovery.DiscoveredDevice{meHashed}, hashedDevices...))
 	})
 
 	// Register device via HTTP (useful for browser clients)
@@ -133,6 +124,12 @@ func (s *Server) Start() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	})
+
+	// Returns this device's current ID (used by other devices to filter stale sessions)
+	http.HandleFunc("/whoami", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"deviceId": s.deviceID})
 	})
 
 	http.HandleFunc("/ws", websocket.ServeWS)

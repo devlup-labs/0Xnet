@@ -40,6 +40,10 @@ func (sd *SessionDiscovery) GetLocalDeviceID() string {
 
 // RegisterDevice adds a discovered device to the registry
 func (sd *SessionDiscovery) RegisterDevice(id, address string, port int) {
+	if port <= 0 {
+		// Invalid or placeholder port, ignore registration
+		return
+	}
 	sd.mutex.Lock()
 	defer sd.mutex.Unlock()
 	sd.devices[id] = &DiscoveredDevice{
@@ -105,17 +109,22 @@ func (sd *SessionDiscovery) GetRemoteSessions() []models.Session {
 }
 
 // fetchSessionsFromDevice fetches sessions from a specific device via HTTP
+// and filters out stale sessions by checking the remote device's current ID
 func (sd *SessionDiscovery) fetchSessionsFromDevice(device *DiscoveredDevice) []models.Session {
 	// Skip devices with no valid port (e.g. browser clients registered with port 0)
 	if device.Port <= 0 {
 		return nil
 	}
-	url := fmt.Sprintf("http://%s:%d/session/list?source=local", device.Address, device.Port)
 
 	client := &http.Client{
 		Timeout: 2 * time.Second,
 	}
 
+	// First, get the remote device's current deviceID via /whoami
+	remoteDeviceID := sd.fetchRemoteDeviceID(client, device)
+
+	// Fetch sessions
+	url := fmt.Sprintf("http://%s:%d/session/list?source=local", device.Address, device.Port)
 	resp, err := client.Get(url)
 	if err != nil {
 		log.Printf("Failed to fetch sessions from %s: %v\n", device.DeviceID, err)
@@ -137,5 +146,38 @@ func (sd *SessionDiscovery) fetchSessionsFromDevice(device *DiscoveredDevice) []
 		return nil
 	}
 
+	// If we know the remote device's current ID, filter out stale sessions
+	if remoteDeviceID != "" {
+		filtered := make([]models.Session, 0, len(sessions))
+		for _, s := range sessions {
+			if s.HostID == remoteDeviceID {
+				filtered = append(filtered, s)
+			}
+		}
+		return filtered
+	}
+
 	return sessions
+}
+
+// fetchRemoteDeviceID gets the current deviceID from a remote device via /whoami
+func (sd *SessionDiscovery) fetchRemoteDeviceID(client *http.Client, device *DiscoveredDevice) string {
+	url := fmt.Sprintf("http://%s:%d/whoami", device.Address, device.Port)
+	resp, err := client.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+
+	var result struct {
+		DeviceID string `json:"deviceId"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ""
+	}
+	return result.DeviceID
 }

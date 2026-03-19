@@ -98,6 +98,7 @@ import (
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/db"
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/discovery"
 	httpapi "github.com/bhawani-prajapat2006/0Xnet/backend/internal/http"
+	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/service"
 
 	"github.com/google/uuid"
 )
@@ -132,6 +133,9 @@ func main() {
 	if err != nil {
 		log.Fatal("Database connection failed:", err)
 	}
+
+	// Clean up stale sessions from previous runs (deviceID changes on each restart)
+	service.CleanupStaleSessions(dbConn, deviceID)
 
 	// Initialize session discovery
 	sessionDiscovery := discovery.NewSessionDiscovery(deviceID)

@@ -48,21 +48,41 @@ func JoinSession(db *sql.DB, sessionID, deviceID, deviceName string) (*models.Se
 	return member, nil
 }
 
-// LeaveSession removes a device from a session
-func LeaveSession(db *sql.DB, sessionID, deviceID string) error {
+// LeaveSession removes a device from a session.
+// If the leaving device is the host, the entire session and all its members are deleted.
+// Returns sessionDeleted=true if the session was removed because the host left.
+func LeaveSession(db *sql.DB, sessionID, deviceID string) (sessionDeleted bool, err error) {
+	// Check if the leaving device is the host of this session
+	var hostID string
+	err = db.QueryRow("SELECT host_id FROM sessions WHERE id = ?", sessionID).Scan(&hostID)
+	if err != nil {
+		return false, err
+	}
+
+	if deviceID == hostID {
+		// Host is leaving — delete the entire session and all members
+		_ = DeleteSessionMembers(db, sessionID)
+		_, err = db.Exec("DELETE FROM sessions WHERE id = ?", sessionID)
+		if err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	// Regular member leaving
 	result, err := db.Exec(
 		"DELETE FROM session_members WHERE session_id = ? AND device_id = ?",
 		sessionID, deviceID,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	rows, _ := result.RowsAffected()
 	if rows == 0 {
-		return sql.ErrNoRows
+		return false, sql.ErrNoRows
 	}
-	return nil
+	return false, nil
 }
 
 // GetSessionMembers returns all members of a session

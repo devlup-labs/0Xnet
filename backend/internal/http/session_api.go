@@ -5,6 +5,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"sort"
 
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/models"
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/service"
@@ -41,7 +42,7 @@ func (s *Server) createSession(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	// Get local sessions from database
-	localSessions, _ := service.ListSessions(s.db)
+	localSessions, _ := service.ListSessions(s.db, s.deviceID)
 
 	// Enrich local sessions with host IP, port, and members
 	for i := range localSessions {
@@ -68,6 +69,11 @@ func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 
 	// Combine local + remote sessions
 	allSessions := append(localSessions, remoteSessions...)
+
+	// Sort by newest first
+	sort.Slice(allSessions, func(i, j int) bool {
+		return allSessions[i].CreatedAt.After(allSessions[j].CreatedAt)
+	})
 
 	log.Printf("🔎 Returning: local=%d remote=%d total=%d", len(localSessions), len(remoteSessions), len(allSessions))
 
