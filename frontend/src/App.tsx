@@ -35,18 +35,33 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 interface SessionData {
   id: string
   name: string
-  devices: number
-  status: 'active' | 'idle'
-  members?: number
+  hostId?: string
+  hostIp?: string
+  hostPort?: number
+  members?: any[]
 }
 
 function MainContent({ onJoin, onCreateClicked }: { onJoin: (session: SessionData) => void, onCreateClicked: () => void }) {
-  const [sessions, setSessions] = useState<SessionData[]>([
-    { id: '01', name: 'Session 01', devices: 2, status: 'active', members: 3 },
-    { id: '02', name: 'Session 02', devices: 1, status: 'active', members: 1 },
-    { id: '03', name: 'Session 03', devices: 0, status: 'idle', members: 0 },
-    { id: '04', name: 'Session 04', devices: 5, status: 'active', members: 5 },
-  ])
+  const [sessions, setSessions] = useState<SessionData[]>([])
+
+  useEffect(() => {
+    const backendPort = '8080'
+    const fetchSessions = async () => {
+      try {
+        const response = await fetch(`http://${window.location.hostname}:${backendPort}/session/list`)
+        if (response.ok) {
+          const data = await response.json()
+          setSessions(data || [])
+        }
+      } catch (err) {
+        console.error('Failed to fetch sessions', err)
+      }
+    }
+
+    fetchSessions()
+    const interval = setInterval(fetchSessions, 3000)
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <main className="main-content">
@@ -83,13 +98,13 @@ function MainContent({ onJoin, onCreateClicked }: { onJoin: (session: SessionDat
           <div className="sessions-grid">
             {sessions.map((session) => (
               <div key={session.id} className="session-card">
-                <div className="session-id">#{session.id}</div>
+                <div className="session-id">#{session.id.substring(0, 4)}</div>
                 <div className="session-info">
                   <div className="session-header">
                     <span className="session-label">{session.name}</span>
                   </div>
                   <div className="session-status">
-                    <span>{session.devices} Connected</span>
+                    <span>{session.members?.length || 0} Connected</span>
                   </div>
                 </div>
                 <button className="join-btn" onClick={() => onJoin(session as SessionData)}>Join ▸</button>
@@ -186,17 +201,59 @@ export default function App() {
     }
   }
 
-  const handleCreateSession = () => {
+  const handleCreateSession = async () => {
     if (!newSessionName.trim()) return
-    const session: SessionData = {
-      id: Math.floor(Math.random() * 100).toString().padStart(2, '0'),
-      name: newSessionName,
-      devices: 1,
-      status: 'active'
+    const backendPort = '8080'
+    try {
+      const resp = await fetch(`http://${window.location.hostname}:${backendPort}/session/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newSessionName })
+      })
+      if (resp.ok) {
+        const session = await resp.json()
+        setActiveSession(session)
+        setIsCreating(false)
+        setNewSessionName('')
+      } else {
+        console.error('Failed to create session:', await resp.text())
+      }
+    } catch (err) {
+      console.error('Error creating session:', err)
     }
-    setActiveSession(session)
-    setIsCreating(false)
-    setNewSessionName('')
+  }
+
+  const handleJoinSession = async (session: SessionData) => {
+    const backendPort = '8080'
+    const targetHost = session.hostIp || window.location.hostname
+    const targetPort = session.hostPort || backendPort
+
+    try {
+      // Get local device ID
+      const myDeviceIdResp = await fetch(`http://${window.location.hostname}:${backendPort}/whoami`)
+      const myData = await myDeviceIdResp.json()
+      const myDeviceId = myData.deviceId
+
+      // Ask remote/local server to join the session
+      const resp = await fetch(`http://${targetHost}:${targetPort}/session/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: session.id,
+          deviceId: myDeviceId,
+          deviceName: 'Guest User'
+        })
+      })
+
+      if (resp.ok) {
+        setActiveSession(session)
+      } else {
+        console.error('Failed to join:', await resp.text())
+      }
+    } catch (err) {
+      console.error('Error joining session:', err)
+      setActiveSession(session) // Fallback to still joining the UI just in case
+    }
   }
 
   return (
@@ -231,7 +288,7 @@ export default function App() {
               exit={{ opacity: 0, scale: 1.05, filter: 'blur(10px)' }}
               transition={{ duration: 0.6, ease: [0.19, 1, 0.22, 1] }}
             >
-              <MainContent onJoin={(s) => setActiveSession(s)} onCreateClicked={() => setIsCreating(true)} />
+              <MainContent onJoin={(s) => handleJoinSession(s)} onCreateClicked={() => setIsCreating(true)} />
             </motion.div>
           ) : (
             <LiveSession 
@@ -240,12 +297,41 @@ export default function App() {
                 id: activeSession.id,
                 name: activeSession.name,
                 activeSince: '00h 00m 00s',
-                members: [
-                  { id: '1', name: 'You', avatar: '', status: 'online', role: 'host', isMe: true },
-                  { id: '2', name: 'Alice', avatar: '', status: 'online', role: 'guest' },
-                ]
+                hostIp: activeSession.hostIp,
+                hostPort: activeSession.hostPort,
+                members: activeSession.members && activeSession.members.length > 0 
+                  ? activeSession.members.map((m: any) => ({
+                      id: m.id || Math.random().toString(),
+                      name: m.deviceName || m.deviceId || 'Unknown',
+                      avatar: '',
+                      status: 'online',
+                      role: m.deviceName === 'Host' ? 'host' : 'guest',
+                      isMe: false // This will be calculated by LiveSession.tsx correctly if needed
+                    }))
+                  : [
+                      { id: '1', name: 'You', avatar: '', status: 'online', role: 'host', isMe: true }
+                    ]
               }}
-              onLeave={() => setActiveSession(null)}
+              onLeave={() => {
+                const backendPort = '8080';
+                const targetHost = activeSession.hostIp || window.location.hostname;
+                const targetPort = activeSession.hostPort || backendPort;
+                
+                fetch(`http://${window.location.hostname}:${backendPort}/whoami`)
+                  .then(res => res.json())
+                  .then(data => {
+                    fetch(`http://${targetHost}:${targetPort}/session/leave`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        sessionId: activeSession.id,
+                        deviceId: data.deviceId
+                      })
+                    }).catch(console.error);
+                  }).catch(console.error);
+
+                setActiveSession(null);
+              }}
             />
           )}
         </AnimatePresence>

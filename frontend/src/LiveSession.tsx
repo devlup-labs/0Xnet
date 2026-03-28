@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ScrambledText from './ScrambledText'
 import PillNav from './PillNav'
@@ -13,21 +13,78 @@ interface Participant {
   isMe?: boolean
 }
 
+interface Message {
+  type: 'chat' | 'system'
+  sender?: string
+  message: string
+  timestamp: string
+}
+
 interface LiveSessionProps {
   sessionData: {
     id: string
     name: string
     activeSince: string
     members: Participant[]
+    hostIp?: string
+    hostPort?: number
   }
   onLeave: () => void
 }
 
 const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
   const [participantsOpen, setParticipantsOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('video')
   const [isMuted, setIsMuted] = useState(false)
   const [isVideoOn, setIsVideoOn] = useState(true)
+  const [messages, setMessages] = useState<Message[]>([])
+  const [inputValue, setInputValue] = useState('')
+  
+  const ws = useRef<WebSocket | null>(null)
+  const chatEndRef = useRef<HTMLDivElement>(null)
+
+  // Get current user's name
+  const myName = sessionData.members.find(m => m.isMe)?.name || 'Me'
+
+  useEffect(() => {
+    // Determine backend port based on current frontend port (simulation)
+    const backendPort = '8080'
+    const targetHost = sessionData.hostIp || window.location.hostname
+    const targetPort = sessionData.hostPort || backendPort
+    
+    // Create WebSocket connection
+    const socket = new WebSocket(`ws://${targetHost}:${targetPort}/ws`)
+    ws.current = socket
+
+    socket.onopen = () => {
+      console.log('WS Connected')
+      // Join session
+      socket.send(JSON.stringify({
+        type: 'join-session',
+        sessionId: sessionData.id,
+        username: myName
+      }))
+    }
+
+    socket.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      setMessages(prev => [...prev, data])
+    }
+
+    socket.onclose = () => {
+      console.log('WS Disconnected')
+    }
+
+    return () => {
+      socket.close()
+    }
+  }, [sessionData.id, myName])
+
+  useEffect(() => {
+    // Scroll to bottom when messages change
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
 
   const controlItems = [
     { id: 'video', label: isVideoOn ? 'Video' : 'Video Off', icon: isVideoOn ? '📹' : '🚫' },
@@ -36,10 +93,23 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
     { id: 'settings', label: 'Settings', icon: '⚙️' },
   ]
 
-  // Mock toggle functions
   const handleControlChange = (id: string) => {
     if (id === 'video') setIsVideoOn(!isVideoOn)
     if (id === 'audio') setIsMuted(!isMuted)
+  }
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!inputValue.trim() || !ws.current) return
+
+    const msg = {
+      type: 'chat',
+      message: inputValue,
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    }
+
+    ws.current.send(JSON.stringify(msg))
+    setInputValue('')
   }
 
   return (
@@ -64,14 +134,28 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
           <div className="header-right">
              <motion.button 
                className={`meet-utility-btn ${participantsOpen ? 'active' : ''}`}
-               onClick={() => setParticipantsOpen(!participantsOpen)}
+               onClick={() => {
+                 setParticipantsOpen(!participantsOpen)
+                 setChatOpen(false)
+               }}
                whileHover={{ scale: 1.1 }}
                whileTap={{ scale: 0.9 }}
                title="Participants"
              >
                👥 <span>{sessionData.members.length}</span>
              </motion.button>
-             <button className="meet-utility-btn" title="Chat">💬</button>
+             <motion.button 
+               className={`meet-utility-btn ${chatOpen ? 'active' : ''}`}
+               onClick={() => {
+                 setChatOpen(!chatOpen)
+                 setParticipantsOpen(false)
+               }}
+               whileHover={{ scale: 1.1 }}
+               whileTap={{ scale: 0.9 }}
+               title="Chat"
+             >
+               💬
+             </motion.button>
           </div>
         </header>
 
@@ -97,12 +181,12 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
                 <div className="audio-indicator">
                    <div className="audio-bars">
                       {[1, 2, 3].map(barIdx => (
-                        <motion.div
-                           key={barIdx}
-                           className="bar"
-                           animate={{ height: [2, Math.random() * 8 + 4, 2] }}
-                           transition={{ repeat: Infinity, duration: 0.4 + Math.random() * 0.4 }}
-                        />
+                         <motion.div
+                            key={barIdx}
+                            className="bar"
+                            animate={{ height: [2, Math.random() * 8 + 4, 2] }}
+                            transition={{ repeat: Infinity, duration: 0.4 + Math.random() * 0.4 }}
+                         />
                       ))}
                    </div>
                 </div>
@@ -110,7 +194,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
             ))}
           </div>
 
-          {/* Floating Participants Sidebar (Overlay if screen is small) */}
+          {/* Floating Participants Sidebar */}
           <AnimatePresence>
             {participantsOpen && (
               <motion.aside 
@@ -134,6 +218,59 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
                       </div>
                     </div>
                   ))}
+                </div>
+              </motion.aside>
+            )}
+          </AnimatePresence>
+
+          {/* Chat Sidebar */}
+          <AnimatePresence>
+            {chatOpen && (
+              <motion.aside 
+                className="meet-chat-sidebar"
+                initial={{ x: 400, opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: 400, opacity: 0 }}
+                transition={{ type: 'spring', damping: 20 }}
+              >
+                <div className="sidebar-header">
+                  <h3>Chat</h3>
+                  <button onClick={() => setChatOpen(false)}>✕</button>
+                </div>
+                
+                <div className="chat-messages">
+                  {messages.map((msg, i) => (
+                    msg.type === 'system' ? (
+                      <div key={i} className="message-type-system">
+                        {msg.message}
+                      </div>
+                    ) : (
+                      <div key={i} className={`chat-message ${msg.sender === myName ? 'me' : ''}`}>
+                        <div className="message-info">
+                          <span className="m-sender">{msg.sender}</span>
+                          <span className="m-time">{msg.timestamp}</span>
+                        </div>
+                        <div className="message-text">
+                          {msg.message}
+                        </div>
+                      </div>
+                    )
+                  ))}
+                  <div ref={chatEndRef} />
+                </div>
+
+                <div className="chat-input-area">
+                  <form className="chat-form" onSubmit={handleSendMessage}>
+                    <input 
+                      type="text" 
+                      placeholder="Send a message..." 
+                      value={inputValue}
+                      onChange={(e) => setInputValue(e.target.value)}
+                    />
+                    <button type="submit" className="chat-send-btn" disabled={!inputValue.trim()}>
+                      ➤
+                    </button>
+                  </form>
                 </div>
               </motion.aside>
             )}

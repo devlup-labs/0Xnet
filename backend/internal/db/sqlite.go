@@ -2,15 +2,17 @@ package db
 
 import (
 	"database/sql"
-
-	// "github.com/mattn/go-sqlite3"
+	"os"
 
 	_ "modernc.org/sqlite"
 )
 
 func Connect() (*sql.DB, error) {
-	// db, err := sql.Open("sqlite3", "../../data/oxnet.db")
-	db, err := sql.Open("sqlite", "data.db")
+	dbName := os.Getenv("DB_NAME")
+	if dbName == "" {
+		dbName = "data.db"
+	}
+	db, err := sql.Open("sqlite", dbName)
 
 	if err != nil {
 		return nil, err

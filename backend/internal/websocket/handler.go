@@ -1,13 +1,14 @@
 package websocket
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/gorilla/websocket"
 )
 
 type Client struct {
-	DeviceID string
+	DeviceID string // Can be username or peer ID
 	Conn     *websocket.Conn
 	Session  string
 }
@@ -17,32 +18,67 @@ var upgrader = websocket.Upgrader{
 }
 
 func ServeWS(w http.ResponseWriter, r *http.Request) {
-	conn, _ := upgrader.Upgrade(w, r, nil)
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("WS Upgrade Error: %v", err)
+		return
+	}
+	defer conn.Close()
 
-	var msg map[string]string
-	conn.ReadJSON(&msg)
-
-	// First message must be join-session
-	if msg["type"] != "join-session" {
-		conn.Close()
+	// 1. Authenticate / Identify on Join
+	var initialMsg map[string]string
+	if err := conn.ReadJSON(&initialMsg); err != nil {
+		log.Printf("WS Initial Read Error: %v", err)
 		return
 	}
 
-	// Approval logic handled by HTTP / DB
-	// If approved → keep connection
+	if initialMsg["type"] != "join-session" || initialMsg["sessionId"] == "" {
+		log.Println("WS Rejected: Invalid join-session message")
+		return
+	}
+
+	sessionID := initialMsg["sessionId"]
+	username := initialMsg["username"]
+	if username == "" {
+		username = "Anonymous"
+	}
+
+	client := &Client{
+		DeviceID: username,
+		Conn:     conn,
+		Session:  sessionID,
+	}
+
+	hub := GlobalManager.GetHub(sessionID)
+	hub.Register(client)
+	defer hub.Unregister(client)
+
+	log.Printf("WS Client Connected: %s to Session %s", username, sessionID)
+
+	// Notify others of new join (optional, good for status)
+	hub.Broadcast(map[string]interface{}{
+		"type":    "system",
+		"message": username + " joined the session",
+	})
+
+	// 2. Main Message Loop
 	for {
 		var incoming map[string]interface{}
-
 		err := conn.ReadJSON(&incoming)
 		if err != nil {
+			log.Printf("WS Read Error: %v", err)
 			break
 		}
 
-		// process incoming data here
-
-		err = conn.WriteJSON(incoming)
-		if err != nil {
-			break
+		// Handle Chat Messages
+		if incoming["type"] == "chat" {
+			// Relay message to everyone in the same session
+			hub.Broadcast(map[string]interface{}{
+				"type":     "chat",
+				"sender":   username,
+				"message":  incoming["message"],
+				"timestamp": incoming["timestamp"],
+			})
 		}
 	}
 }

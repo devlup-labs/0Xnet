@@ -13,6 +13,21 @@ import (
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/websocket"
 )
 
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 func hashString(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
@@ -135,6 +150,6 @@ func (s *Server) Start() {
 	http.HandleFunc("/ws", websocket.ServeWS)
 
 	log.Printf("🌍 0Xnet API active on port %d", s.port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", s.port), nil))
+	log.Fatal(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%d", s.port), corsMiddleware(http.DefaultServeMux)))
 
 }
