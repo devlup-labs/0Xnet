@@ -39,6 +39,7 @@ function VideoRenderer({ stream, muted = false }: { stream: MediaStream; muted?:
 
 const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, wsUrl, peerId, onLeave }) => {
   const [participantsOpen, setParticipantsOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const [elapsedTime, setElapsedTime] = useState('00h 00m 00s')
 
   const {
@@ -111,14 +112,28 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, wsUrl, peerId, o
           <div className="header-right">
              <motion.button
                className={`meet-utility-btn ${participantsOpen ? 'active' : ''}`}
-               onClick={() => setParticipantsOpen(!participantsOpen)}
+               onClick={() => {
+                 setParticipantsOpen(!participantsOpen)
+                 setChatOpen(false)
+               }}
                whileHover={{ scale: 1.1 }}
                whileTap={{ scale: 0.9 }}
                title="Participants"
              >
                👥 <span>{totalCount}</span>
              </motion.button>
-             <button className="meet-utility-btn" title="Chat">💬</button>
+             <motion.button
+               className={`meet-utility-btn ${chatOpen ? 'active' : ''}`}
+               onClick={() => {
+                 setChatOpen(!chatOpen)
+                 setParticipantsOpen(false)
+               }}
+               whileHover={{ scale: 1.1 }}
+               whileTap={{ scale: 0.9 }}
+               title="Chat"
+             >
+               💬
+             </motion.button>
           </div>
         </header>
 

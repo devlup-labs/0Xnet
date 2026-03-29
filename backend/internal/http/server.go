@@ -1,8 +1,8 @@
 package httpapi
 
 import (
-	"database/sql"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,6 +12,21 @@ import (
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/discovery"
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/websocket"
 )
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
 
 func hashString(s string) string {
 	sum := sha256.Sum256([]byte(s))
@@ -34,21 +49,6 @@ func NewServer(db *sql.DB, deviceID string, sessionDiscovery *discovery.SessionD
 		port:             port,
 		hub:              websocket.NewHub(),
 	}
-}
-
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, Authorization")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-
-		next.ServeHTTP(w, r)
-	})
 }
 
 func (s *Server) Start() {

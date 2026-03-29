@@ -40,31 +40,32 @@ interface SessionData {
   hostIp: string
   hostPort: number
   members: any[]
+  hostId?: string
+  hostIp?: string
+  hostPort?: number
+  members?: any[]
 }
 
 function MainContent({ onJoin, onCreateClicked }: { onJoin: (session: SessionData) => void, onCreateClicked: () => void }) {
   const [sessions, setSessions] = useState<SessionData[]>([])
-  const [loading, setLoading] = useState(false)
-
-  const fetchSessions = async () => {
-    setLoading(true)
-    try {
-      const res = await fetch(`http://${window.location.hostname}:8080/session/list`)
-      if (res.ok) {
-        const data = await res.json()
-        setSessions(data || [])
-      }
-    } catch (err) {
-      console.error('Failed to fetch sessions:', err)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   useEffect(() => {
+    const backendPort = '8080'
+    const fetchSessions = async () => {
+      try {
+        const response = await fetch(`http://${window.location.hostname}:${backendPort}/session/list`)
+        if (response.ok) {
+          const data = await response.json()
+          setSessions(data || [])
+        }
+      } catch (err) {
+        console.error('Failed to fetch sessions', err)
+      }
+    }
+
     fetchSessions()
-    const int = setInterval(fetchSessions, 3000)
-    return () => clearInterval(int)
+    const interval = setInterval(fetchSessions, 3000)
+    return () => clearInterval(interval)
   }, [])
 
   return (
@@ -102,13 +103,13 @@ function MainContent({ onJoin, onCreateClicked }: { onJoin: (session: SessionDat
           <div className="sessions-grid">
             {sessions.map((session) => (
               <div key={session.id} className="session-card">
-                <div className="session-id">#{session.id.substring(0,6)}</div>
+                <div className="session-id">#{session.id.substring(0, 4)}</div>
                 <div className="session-info">
                   <div className="session-header">
                     <span className="session-label">{session.name}</span>
                   </div>
                   <div className="session-status">
-                    <span>{session.members?.length || 1} Connected</span>
+                    <span>{session.members?.length || 0} Connected</span>
                   </div>
                 </div>
                 <button className="join-btn" onClick={() => onJoin(session)}>Join ▸</button>
@@ -218,24 +219,56 @@ export default function App() {
 
   const handleCreateSession = async () => {
     if (!newSessionName.trim()) return
+    const backendPort = '8080'
     try {
-      const res = await fetch(`http://${window.location.hostname}:8080/session/create`, {
+      const resp = await fetch(`http://${window.location.hostname}:${backendPort}/session/create`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newSessionName })
       })
-      if (res.ok) {
-        const session = await res.json()
+      if (resp.ok) {
+        const session = await resp.json()
         setActiveSession(session)
         setIsCreating(false)
         setNewSessionName('')
       } else {
-        console.error('Failed to create session:', await res.text())
+        console.error('Failed to create session:', await resp.text())
       }
     } catch (err) {
-      console.error('Network error creating session:', err)
+      console.error('Error creating session:', err)
+    }
+  }
+
+  const handleJoinSession = async (session: SessionData) => {
+    const backendPort = '8080'
+    const targetHost = session.hostIp || window.location.hostname
+    const targetPort = session.hostPort || backendPort
+
+    try {
+      // Get local device ID
+      const myDeviceIdResp = await fetch(`http://${window.location.hostname}:${backendPort}/whoami`)
+      const myData = await myDeviceIdResp.json()
+      const myDeviceId = myData.deviceId
+
+      // Ask remote/local server to join the session
+      const resp = await fetch(`http://${targetHost}:${targetPort}/session/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: session.id,
+          deviceId: myDeviceId,
+          deviceName: 'Guest User'
+        })
+      })
+
+      if (resp.ok) {
+        setActiveSession(session)
+      } else {
+        console.error('Failed to join:', await resp.text())
+      }
+    } catch (err) {
+      console.error('Error joining session:', err)
+      setActiveSession(session) // Fallback to still joining the UI just in case
     }
   }
 
@@ -271,19 +304,50 @@ export default function App() {
               exit={{ opacity: 0, scale: 1.05, filter: 'blur(10px)' }}
               transition={{ duration: 0.6, ease: [0.19, 1, 0.22, 1] }}
             >
-              <MainContent onJoin={(s) => setActiveSession(s)} onCreateClicked={() => setIsCreating(true)} />
+              <MainContent onJoin={(s) => handleJoinSession(s)} onCreateClicked={() => setIsCreating(true)} />
             </motion.div>
           ) : (
-            <LiveSession 
+            <LiveSession
               key="live-session"
               sessionData={{
                 id: activeSession.id,
                 name: activeSession.name,
                 activeSince: '00h 00m 00s',
+                hostIp: activeSession.hostIp,
+                hostPort: activeSession.hostPort,
+                members: activeSession.members && activeSession.members.length > 0
+                  ? activeSession.members.map((m: any) => ({
+                    id: m.id || Math.random().toString(),
+                    name: m.deviceName || m.deviceId || 'Unknown',
+                    avatar: '',
+                    status: 'online',
+                    role: m.deviceName === 'Host' ? 'host' : 'guest',
+                    isMe: false // This will be calculated by LiveSession.tsx correctly if needed
+                  }))
+                  : [
+                    { id: '1', name: 'You', avatar: '', status: 'online', role: 'host', isMe: true }
+                  ]
               }}
-              wsUrl={wsUrl}
-              peerId={peerId}
-              onLeave={() => setActiveSession(null)}
+              onLeave={() => {
+                const backendPort = '8080';
+                const targetHost = activeSession.hostIp || window.location.hostname;
+                const targetPort = activeSession.hostPort || backendPort;
+
+                fetch(`http://${window.location.hostname}:${backendPort}/whoami`)
+                  .then(res => res.json())
+                  .then(data => {
+                    fetch(`http://${targetHost}:${targetPort}/session/leave`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        sessionId: activeSession.id,
+                        deviceId: data.deviceId
+                      })
+                    }).catch(console.error);
+                  }).catch(console.error);
+
+                setActiveSession(null);
+              }}
             />
           )}
         </AnimatePresence>
@@ -291,33 +355,33 @@ export default function App() {
         <AnimatePresence>
           {isCreating && (
             <div className="create-session-overlay">
-               <motion.div 
-                 className="create-session-panel"
-                 initial={{ opacity: 0, y: 50, scale: 0.9 }}
-                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                 exit={{ opacity: 0, y: 20, scale: 0.9 }}
-                 transition={{ type: 'spring', damping: 25 }}
-               >
-                 <h2>Create New Session</h2>
-                 <p>Give your shared 0XNET workspace a name</p>
-                 <input 
-                   autoFocus
-                   type="text" 
-                   className="session-name-input" 
-                   placeholder="e.g. Design Sync" 
-                   value={newSessionName}
-                   onChange={(e) => setNewSessionName(e.target.value)}
-                   onKeyDown={(e) => e.key === 'Enter' && handleCreateSession()}
-                 />
-                 <div className="panel-actions">
-                   <button className="cancel-btn" onClick={() => setIsCreating(false)}>Cancel</button>
-                   <button className="submit-create-btn" onClick={handleCreateSession}>Launch Session</button>
-                 </div>
-               </motion.div>
+              <motion.div
+                className="create-session-panel"
+                initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 20, scale: 0.9 }}
+                transition={{ type: 'spring', damping: 25 }}
+              >
+                <h2>Create New Session</h2>
+                <p>Give your shared 0XNET workspace a name</p>
+                <input
+                  autoFocus
+                  type="text"
+                  className="session-name-input"
+                  placeholder="e.g. Design Sync"
+                  value={newSessionName}
+                  onChange={(e) => setNewSessionName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreateSession()}
+                />
+                <div className="panel-actions">
+                  <button className="cancel-btn" onClick={() => setIsCreating(false)}>Cancel</button>
+                  <button className="submit-create-btn" onClick={handleCreateSession}>Launch Session</button>
+                </div>
+              </motion.div>
             </div>
           )}
         </AnimatePresence>
-        
+
         <SidePanel isOpen={panelOpen} onClose={() => setPanelOpen(false)} />
       </ErrorBoundary>
     </div>
