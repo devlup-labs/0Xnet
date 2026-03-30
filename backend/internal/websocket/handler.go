@@ -70,15 +70,25 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 
-		// Handle Chat Messages
-		if incoming["type"] == "chat" {
-			// Relay message to everyone in the same session
+		msgType, _ := incoming["type"].(string)
+
+		switch msgType {
+		case "chat":
 			hub.Broadcast(map[string]interface{}{
-				"type":     "chat",
-				"sender":   username,
-				"message":  incoming["message"],
+				"type":      "chat",
+				"sender":    username,
+				"message":   incoming["message"],
 				"timestamp": incoming["timestamp"],
 			})
+
+		case "offer", "answer", "ice-candidate", "renegotiate":
+			// WebRTC Signaling: Relay to others in the room
+			// Inject sender ID so the target knows who sent it
+			incoming["sender"] = client.DeviceID
+			hub.BroadcastExcluding(incoming, client)
+
+		default:
+			log.Printf("WS Unknown Message Type: %s", msgType)
 		}
 	}
 }

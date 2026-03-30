@@ -37,6 +37,17 @@ func (h *SessionHub) Broadcast(msg interface{}) {
 	}
 }
 
+func (h *SessionHub) BroadcastExcluding(msg interface{}, exclude *Client) {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+	for client := range h.Clients {
+		if client == exclude {
+			continue
+		}
+		client.Conn.WriteJSON(msg)
+	}
+}
+
 type SessionManager struct {
 	Hubs  map[string]*SessionHub
 	mutex sync.RWMutex

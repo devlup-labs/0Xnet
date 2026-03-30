@@ -6,6 +6,7 @@ import './LiveSession.css'
 
 interface Participant {
   id: string
+  deviceId: string
   name: string
   avatar: string
   status: 'online' | 'busy' | 'away'
@@ -21,6 +22,7 @@ interface Message {
 }
 
 interface LiveSessionProps {
+  myDeviceId: string
   sessionData: {
     id: string
     name: string
@@ -32,7 +34,7 @@ interface LiveSessionProps {
   onLeave: () => void
 }
 
-const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
+const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLeave }) => {
   const [participantsOpen, setParticipantsOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [activeTab, setActiveTab] = useState('video')
@@ -40,26 +42,56 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
   const [isVideoOn, setIsVideoOn] = useState(true)
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
+  const [localStreamLoaded, setLocalStreamLoaded] = useState(false)
   
   const ws = useRef<WebSocket | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
+  
+  // WebRTC Refs
+  const localStream = useRef<MediaStream | null>(null)
+  const peerConnections = useRef<{ [peerId: string]: RTCPeerConnection }>({})
+  const [remoteStreams, setRemoteStreams] = useState<{ [peerId: string]: MediaStream }>({})
 
   // Get current user's name
-  const myName = sessionData.members.find(m => m.isMe)?.name || 'Me'
+  const myName = sessionData.members.find(m => m.deviceId === myDeviceId)?.name || 'Me'
 
   useEffect(() => {
-    // Determine backend port based on current frontend port (simulation)
+    // Initialize local media
+    const initMedia = async () => {
+      try {
+        console.log('Requesting local media...')
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          video: true, 
+          audio: true 
+        })
+        console.log('Local stream obtained:', stream.id)
+        localStream.current = stream
+        setLocalStreamLoaded(true)
+      } catch (err) {
+        console.error('Error accessing media devices:', err)
+      }
+    }
+    
+    if (!localStream.current) {
+      initMedia()
+    }
+
+    return () => {
+      // Don't stop tracks here, let the main session effect handle it
+    }
+  }, [])
+
+  useEffect(() => {
     const backendPort = '8080'
     const targetHost = sessionData.hostIp || window.location.hostname
     const targetPort = sessionData.hostPort || backendPort
-    
-    // Create WebSocket connection
+
+    // 2. Create WebSocket connection
     const socket = new WebSocket(`ws://${targetHost}:${targetPort}/ws`)
     ws.current = socket
 
     socket.onopen = () => {
       console.log('WS Connected')
-      // Join session
       socket.send(JSON.stringify({
         type: 'join-session',
         sessionId: sessionData.id,
@@ -67,9 +99,30 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
       }))
     }
 
-    socket.onmessage = (event) => {
+    socket.onmessage = async (event) => {
       const data = JSON.parse(event.data)
-      setMessages(prev => [...prev, data])
+      
+      switch (data.type) {
+        case 'chat':
+        case 'system':
+          setMessages(prev => [...prev, data])
+          break
+          
+        case 'offer':
+          handleOffer(data)
+          break
+          
+        case 'answer':
+          handleAnswer(data)
+          break
+          
+        case 'ice-candidate':
+          handleICECandidate(data)
+          break
+          
+        default:
+          console.log('Unknown message type:', data.type)
+      }
     }
 
     socket.onclose = () => {
@@ -78,11 +131,98 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
 
     return () => {
       socket.close()
+      localStream.current?.getTracks().forEach(t => t.stop())
+      Object.values(peerConnections.current).forEach(pc => pc.close())
     }
-  }, [sessionData.id, myName])
+  }, [sessionData.id, myName, localStreamLoaded])
+
+  // WebRTC Signaling Handlers
+  const createPeerConnection = (peerId: string) => {
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    })
+
+    pc.onicecandidate = (event) => {
+      if (event.candidate && ws.current) {
+        ws.current.send(JSON.stringify({
+          type: 'ice-candidate',
+          candidate: event.candidate,
+          targetPeerId: peerId // Logic handles relaying
+        }))
+      }
+    }
+
+    pc.ontrack = (event) => {
+      setRemoteStreams(prev => ({
+        ...prev,
+        [peerId]: event.streams[0]
+      }))
+    }
+
+    if (localStream.current) {
+      localStream.current.getTracks().forEach(track => {
+        pc.addTrack(track, localStream.current!)
+      })
+    }
+
+    peerConnections.current[peerId] = pc
+    return pc
+  }
+
+  const handleOffer = async (data: any) => {
+    const pc = createPeerConnection(data.sender)
+    await pc.setRemoteDescription(new RTCSessionDescription(data.offer))
+    const answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
+    
+    ws.current?.send(JSON.stringify({
+      type: 'answer',
+      answer: answer,
+      targetPeerId: data.sender
+    }))
+  }
+
+  const handleAnswer = async (data: any) => {
+    const pc = peerConnections.current[data.sender]
+    if (pc) {
+      await pc.setRemoteDescription(new RTCSessionDescription(data.answer))
+    }
+  }
+
+  const handleICECandidate = async (data: any) => {
+    const pc = peerConnections.current[data.sender]
+    if (pc) {
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate))
+    }
+  }
+
+  // Track which peers we've already initiated calls with to avoid double calling
+  const initiatedCalls = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    // Scroll to bottom when messages change
+    // When members list changes, see if there are new people to call
+    sessionData.members.forEach(member => {
+      if (!member.isMe && !peerConnections.current[member.id] && !initiatedCalls.current.has(member.id)) {
+        console.log(`Initiating call to ${member.name} (${member.id})`)
+        initiatedCalls.current.add(member.id)
+        startCall(member.id)
+      }
+    })
+  }, [sessionData.members])
+
+  const startCall = async (peerId: string) => {
+    const pc = createPeerConnection(peerId)
+    const offer = await pc.createOffer()
+    await pc.setLocalDescription(offer)
+    
+    ws.current?.send(JSON.stringify({
+      type: 'offer',
+      offer: offer,
+      targetPeerId: peerId
+    }))
+  }
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
@@ -94,8 +234,16 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
   ]
 
   const handleControlChange = (id: string) => {
-    if (id === 'video') setIsVideoOn(!isVideoOn)
-    if (id === 'audio') setIsMuted(!isMuted)
+    if (id === 'video') {
+      const newVideoState = !isVideoOn
+      setIsVideoOn(newVideoState)
+      localStream.current?.getVideoTracks().forEach(t => t.enabled = newVideoState)
+    }
+    if (id === 'audio') {
+      const newMuteState = !isMuted
+      setIsMuted(newMuteState)
+      localStream.current?.getAudioTracks().forEach(t => t.enabled = !newMuteState)
+    }
   }
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -171,11 +319,44 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
                 transition={{ delay: i * 0.1 }}
                 layout
               >
-                <div className="video-avatar">
-                   {member.avatar ? <img src={member.avatar} alt={member.name} /> : <div className="avatar-placeholder">{member.name[0]}</div>}
-                </div>
+                  {member.deviceId === myDeviceId ? (
+                    <>
+                      <video 
+                        autoPlay 
+                        muted 
+                        playsInline
+                        ref={el => { 
+                          if (el && localStream.current) {
+                            if (el.srcObject !== localStream.current) {
+                              console.log('Setting local video srcObject')
+                              el.srcObject = localStream.current
+                            }
+                            // Extra nudge for Chrome/Edge
+                            if (el.paused) el.play().catch(e => console.error("Play error:", e))
+                          }
+                        }} 
+                        className={`video-feed local ${!isVideoOn ? 'hidden' : ''}`}
+                      />
+                      {!isVideoOn && (
+                        <div className="video-avatar absolute">
+                           <div className="avatar-placeholder">{member.name[0]}</div>
+                        </div>
+                      )}
+                    </>
+                  ) : remoteStreams[member.id] ? (
+                     <video 
+                       autoPlay 
+                       ref={el => { if (el) el.srcObject = remoteStreams[member.id] }} 
+                       className="video-feed"
+                     />
+                  ) : (
+                    <div className="video-avatar">
+                       {member.avatar ? <img src={member.avatar} alt={member.name} /> : <div className="avatar-placeholder">{member.name[0]}</div>}
+                    </div>
+                  )}
+                
                 <div className="tile-label">
-                   {member.isMe ? 'You' : member.name}
+                   {member.deviceId === myDeviceId ? 'You' : member.name}
                 </div>
                 {/* Simulated Audio Indicator */}
                 <div className="audio-indicator">
@@ -212,7 +393,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ sessionData, onLeave }) => {
                   {sessionData.members.map((member) => (
                     <div key={member.id} className="participant-row">
                       <div className="p-avatar">{member.name[0]}</div>
-                      <span className="p-name">{member.name} {member.isMe && '(You)'}</span>
+                      <span className="p-name">{member.name} {member.deviceId === myDeviceId && '(You)'}</span>
                       <div className="p-controls">
                          🎙️ 📹
                       </div>

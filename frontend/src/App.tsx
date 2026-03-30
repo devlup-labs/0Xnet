@@ -191,6 +191,15 @@ export default function App() {
   const [activeSession, setActiveSession] = useState<SessionData | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [newSessionName, setNewSessionName] = useState('')
+  const [localDeviceId, setLocalDeviceId] = useState('')
+
+  useEffect(() => {
+    const backendPort = '8080'
+    fetch(`http://${window.location.hostname}:${backendPort}/whoami`)
+      .then(res => res.json())
+      .then(data => setLocalDeviceId(data.deviceId))
+      .catch(err => console.error("Could not fetch local device ID", err))
+  }, [])
 
   const handleLogoClick = () => {
     setPanelOpen(false)
@@ -293,6 +302,7 @@ export default function App() {
           ) : (
             <LiveSession 
               key="live-session"
+              myDeviceId={localDeviceId}
               sessionData={{
                 id: activeSession.id,
                 name: activeSession.name,
@@ -302,14 +312,15 @@ export default function App() {
                 members: activeSession.members && activeSession.members.length > 0 
                   ? activeSession.members.map((m: any) => ({
                       id: m.id || Math.random().toString(),
+                      deviceId: m.deviceId || 'unknown',
                       name: m.deviceName || m.deviceId || 'Unknown',
                       avatar: '',
                       status: 'online',
                       role: m.deviceName === 'Host' ? 'host' : 'guest',
-                      isMe: false // This will be calculated by LiveSession.tsx correctly if needed
+                      isMe: m.deviceId === localDeviceId
                     }))
                   : [
-                      { id: '1', name: 'You', avatar: '', status: 'online', role: 'host', isMe: true }
+                      { id: '1', deviceId: localDeviceId, name: 'You', avatar: '', status: 'online', role: 'host', isMe: true }
                     ]
               }}
               onLeave={() => {
