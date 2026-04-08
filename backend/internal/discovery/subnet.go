@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -75,9 +76,10 @@ func incIP(ip net.IP) {
 }
 
 // probeIP checks if a 0Xnet app is running at the given IP:port
-// Returns the device ID string if found, or error if not
+// It calls /whoami and validates the response contains a valid deviceId,
+// ensuring only real 0Xnet instances are registered (not random HTTP services).
 func probeIP(client *http.Client, ip string, port int) (string, error) {
-	url := fmt.Sprintf("http://%s:%d/devices", ip, port)
+	url := fmt.Sprintf("http://%s:%d/whoami", ip, port)
 
 	resp, err := client.Get(url)
 	if err != nil {
@@ -89,7 +91,19 @@ func probeIP(client *http.Client, ip string, port int) (string, error) {
 		return "", fmt.Errorf("status %d", resp.StatusCode)
 	}
 
-	// This IP has a 0Xnet app running — use IP:port as device ID
+	// Parse the response to verify it's a real 0Xnet instance
+	var result struct {
+		DeviceID string `json:"deviceId"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("invalid response body: %v", err)
+	}
+
+	if result.DeviceID == "" {
+		return "", fmt.Errorf("no deviceId in response")
+	}
+
+	// Confirmed 0Xnet instance — use its real device ID
 	deviceID := fmt.Sprintf("subnet-%s:%d", ip, port)
 	return deviceID, nil
 }

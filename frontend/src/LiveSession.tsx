@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ScrambledText from './ScrambledText'
 import PillNav from './PillNav'
+import VideoPlayer from './VideoPlayer'
 import './LiveSession.css'
 
 interface Participant {
@@ -43,26 +44,115 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
   const [messages, setMessages] = useState<Message[]>([])
   const [inputValue, setInputValue] = useState('')
   const [localStreamLoaded, setLocalStreamLoaded] = useState(false)
-  
+  const [wsReady, setWsReady] = useState(false)
+  const [participants, setParticipants] = useState<Participant[]>(sessionData.members)
+
+  // ── HLS Streaming State ─────────────────────────────────
+  const [hlsPlaylistUrl, setHlsPlaylistUrl] = useState<string | null>(null)
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [streamLoading, setStreamLoading] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const streamContainerRef = useRef<HTMLDivElement>(null)
+  const hostPlayingLocally = useRef(false) // true when host is playing via blob URL
+  const isHost = participants.find(p => p.isMe)?.role === 'host'
+
   const ws = useRef<WebSocket | null>(null)
   const chatEndRef = useRef<HTMLDivElement>(null)
-  
+
   // WebRTC Refs
   const localStream = useRef<MediaStream | null>(null)
   const peerConnections = useRef<{ [peerId: string]: RTCPeerConnection }>({})
   const [remoteStreams, setRemoteStreams] = useState<{ [peerId: string]: MediaStream }>({})
 
-  // Get current user's name
-  const myName = sessionData.members.find(m => m.deviceId === myDeviceId)?.name || 'Me'
+  useEffect(() => {
+    setParticipants(sessionData.members)
+  }, [sessionData.members])
+
+  // Sync fullscreen state with browser (e.g. user presses Escape)
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+
+  const shouldInitiateConnection = (localId: string, remoteId: string) => {
+    return localId.localeCompare(remoteId) < 0
+  }
+
+  const removePeerConnection = (peerId: string) => {
+    const existing = peerConnections.current[peerId]
+    if (existing) {
+      existing.onicecandidate = null
+      existing.ontrack = null
+      existing.onconnectionstatechange = null
+      existing.close()
+      delete peerConnections.current[peerId]
+    }
+
+    setRemoteStreams(prev => {
+      const next = { ...prev }
+      delete next[peerId]
+      return next
+    })
+  }
+
+  useEffect(() => {
+    const backendPort = '8080'
+    const targetHost = sessionData.hostIp || window.location.hostname
+    const targetPort = sessionData.hostPort || backendPort
+
+    const fetchMembers = async () => {
+      try {
+        const resp = await fetch(
+          `http://${targetHost}:${targetPort}/session/members?sessionId=${encodeURIComponent(sessionData.id)}`
+        )
+        if (!resp.ok) return
+
+        const members = await resp.json()
+        const mapped: Participant[] = Array.isArray(members)
+          ? members.map((m: any) => ({
+            id: m.id || m.deviceId || Math.random().toString(),
+            deviceId: m.deviceId || 'unknown',
+            name: m.deviceName || m.deviceId || 'Unknown',
+            avatar: '',
+            status: 'online',
+            role: m.deviceName === 'Host' ? 'host' : 'guest',
+            isMe: m.deviceId === myDeviceId
+          }))
+          : []
+
+        if (!mapped.some((m) => m.deviceId === myDeviceId)) {
+          mapped.unshift({
+            id: myDeviceId || 'local',
+            deviceId: myDeviceId,
+            name: 'You',
+            avatar: '',
+            status: 'online',
+            role: 'guest',
+            isMe: true
+          })
+        }
+
+        setParticipants(mapped)
+      } catch (err) {
+        console.error('Failed to refresh session members', err)
+      }
+    }
+
+    fetchMembers()
+    const interval = setInterval(fetchMembers, 2000)
+    return () => clearInterval(interval)
+  }, [sessionData.id, sessionData.hostIp, sessionData.hostPort, myDeviceId])
 
   useEffect(() => {
     // Initialize local media
     const initMedia = async () => {
       try {
         console.log('Requesting local media...')
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: true, 
-          audio: true 
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true
         })
         console.log('Local stream obtained:', stream.id)
         localStream.current = stream
@@ -71,7 +161,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
         console.error('Error accessing media devices:', err)
       }
     }
-    
+
     if (!localStream.current) {
       initMedia()
     }
@@ -92,34 +182,55 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
 
     socket.onopen = () => {
       console.log('WS Connected')
+      setWsReady(true)
       socket.send(JSON.stringify({
         type: 'join-session',
         sessionId: sessionData.id,
-        username: myName
+        username: myDeviceId
       }))
     }
 
     socket.onmessage = async (event) => {
       const data = JSON.parse(event.data)
-      
+
       switch (data.type) {
         case 'chat':
         case 'system':
           setMessages(prev => [...prev, data])
           break
-          
+
         case 'offer':
           handleOffer(data)
           break
-          
+
         case 'answer':
           handleAnswer(data)
           break
-          
+
         case 'ice-candidate':
           handleICECandidate(data)
           break
-          
+
+        case 'stream-started': {
+          // Host is already playing locally via blob URL — don't overwrite with HLS URL
+          if (hostPlayingLocally.current) {
+            console.log('[HLS] Host already playing locally, ignoring stream-started')
+            break
+          }
+          const base = `http://${sessionData.hostIp || window.location.hostname}:${sessionData.hostPort || '8080'}`
+          const fullUrl = data.playlistUrl.startsWith('http') ? data.playlistUrl : `${base}${data.playlistUrl}`
+          console.log('[HLS] Stream started:', fullUrl)
+          setHlsPlaylistUrl(fullUrl)
+          setIsStreaming(true)
+          break
+        }
+
+        case 'stream-stopped':
+          console.log('[HLS] Stream stopped')
+          setHlsPlaylistUrl(null)
+          setIsStreaming(false)
+          break
+
         default:
           console.log('Unknown message type:', data.type)
       }
@@ -127,14 +238,16 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
 
     socket.onclose = () => {
       console.log('WS Disconnected')
+      setWsReady(false)
     }
 
     return () => {
+      setWsReady(false)
       socket.close()
       localStream.current?.getTracks().forEach(t => t.stop())
       Object.values(peerConnections.current).forEach(pc => pc.close())
     }
-  }, [sessionData.id, myName, localStreamLoaded])
+  }, [sessionData.id, myDeviceId, sessionData.hostIp, sessionData.hostPort])
 
   // WebRTC Signaling Handlers
   const createPeerConnection = (peerId: string) => {
@@ -159,6 +272,14 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
       }))
     }
 
+    pc.onconnectionstatechange = () => {
+      const state = pc.connectionState
+      if (state === 'failed' || state === 'disconnected' || state === 'closed') {
+        removePeerConnection(peerId)
+        initiatedCalls.current.delete(peerId)
+      }
+    }
+
     if (localStream.current) {
       localStream.current.getTracks().forEach(track => {
         pc.addTrack(track, localStream.current!)
@@ -170,11 +291,12 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
   }
 
   const handleOffer = async (data: any) => {
+    removePeerConnection(data.sender)
     const pc = createPeerConnection(data.sender)
     await pc.setRemoteDescription(new RTCSessionDescription(data.offer))
     const answer = await pc.createAnswer()
     await pc.setLocalDescription(answer)
-    
+
     ws.current?.send(JSON.stringify({
       type: 'answer',
       answer: answer,
@@ -200,36 +322,130 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
   const initiatedCalls = useRef<Set<string>>(new Set())
 
   useEffect(() => {
-    // When members list changes, see if there are new people to call
-    sessionData.members.forEach(member => {
-      if (!member.isMe && !peerConnections.current[member.id] && !initiatedCalls.current.has(member.id)) {
-        console.log(`Initiating call to ${member.name} (${member.id})`)
-        initiatedCalls.current.add(member.id)
-        startCall(member.id)
+    if (!wsReady || !localStreamLoaded) {
+      return
+    }
+
+    // Drop stale initiation records so a leaving/rejoining peer can be called again.
+    const activePeerIDs = new Set(participants.filter(p => !p.isMe).map(p => p.deviceId))
+    initiatedCalls.current.forEach(peerId => {
+      if (!activePeerIDs.has(peerId)) {
+        initiatedCalls.current.delete(peerId)
       }
     })
-  }, [sessionData.members])
+
+    // When members list changes, start negotiation with peers not yet called.
+    participants.forEach(member => {
+      if (
+        !member.isMe &&
+        shouldInitiateConnection(myDeviceId, member.deviceId) &&
+        !peerConnections.current[member.deviceId] &&
+        !initiatedCalls.current.has(member.deviceId)
+      ) {
+        console.log(`Initiating call to ${member.name} (${member.deviceId})`)
+        startCall(member.deviceId)
+      }
+    })
+  }, [participants, wsReady, localStreamLoaded, myDeviceId])
 
   const startCall = async (peerId: string) => {
-    const pc = createPeerConnection(peerId)
-    const offer = await pc.createOffer()
-    await pc.setLocalDescription(offer)
-    
-    ws.current?.send(JSON.stringify({
-      type: 'offer',
-      offer: offer,
-      targetPeerId: peerId
-    }))
+    if (!ws.current || ws.current.readyState !== WebSocket.OPEN) {
+      return
+    }
+
+    if (!localStream.current) {
+      console.warn('Local stream not ready, delaying call start for peer', peerId)
+      return
+    }
+
+    initiatedCalls.current.add(peerId)
+
+    try {
+      const pc = createPeerConnection(peerId)
+      const offer = await pc.createOffer()
+      await pc.setLocalDescription(offer)
+
+      ws.current.send(JSON.stringify({
+        type: 'offer',
+        offer: offer,
+        targetPeerId: peerId
+      }))
+    } catch (err) {
+      initiatedCalls.current.delete(peerId)
+      removePeerConnection(peerId)
+      console.error('Failed to start WebRTC call for peer', peerId, err)
+    }
   }
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
+  // ── HLS Streaming Controls ──────────────────────────────
+  const backendBase = `http://${sessionData.hostIp || window.location.hostname}:${sessionData.hostPort || '8080'}`
+
+  /** Upload the selected file to the backend and start streaming */
+  const handleFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = '' // reset so same file can be re-selected
+
+    // ── HOST: Play locally IMMEDIATELY via blob URL ──────
+    const blobUrl = URL.createObjectURL(file)
+    hostPlayingLocally.current = true
+    setHlsPlaylistUrl(blobUrl)
+    setIsStreaming(true)
+
+    // ── Upload in background so guests can watch via HLS ─
+    setStreamLoading(true) // shows a small "sharing…" indicator
+    try {
+      const formData = new FormData()
+      formData.append('sessionId', sessionData.id)
+      formData.append('file', file)
+
+      const resp = await fetch(`${backendBase}/stream/upload`, {
+        method: 'POST',
+        body: formData,
+      })
+      const result = await resp.json().catch(() => ({ error: 'Invalid response' }))
+      if (!resp.ok) {
+        console.error('[HLS] Upload/start failed:', result.error || resp.status)
+        // Host is still playing locally — don't interrupt, just log
+      }
+      // Don't change the host's playlistUrl (keep blob).
+      // The backend's WebSocket broadcast already notifies guests with the HLS URL.
+    } catch (err: any) {
+      console.error('[HLS] Background upload error:', err)
+    } finally {
+      setStreamLoading(false)
+    }
+  }
+
+  const handleStopStream = async () => {
+    try {
+      await fetch(`${backendBase}/stream/stop`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: sessionData.id }),
+      })
+      // Revoke blob URL if the host was playing locally
+      if (hlsPlaylistUrl && hlsPlaylistUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(hlsPlaylistUrl)
+      }
+      hostPlayingLocally.current = false
+      setHlsPlaylistUrl(null)
+      setIsStreaming(false)
+    } catch (err) {
+      console.error('[HLS] Stop stream error:', err)
+    }
+  }
+
   const controlItems = [
     { id: 'video', label: isVideoOn ? 'Video' : 'Video Off', icon: isVideoOn ? '📹' : '🚫' },
     { id: 'audio', label: isMuted ? 'Muted' : 'Unmuted', icon: isMuted ? '🔇' : '🎙️' },
     { id: 'screenshare', label: 'Screen', icon: '🖥️' },
+    // Only the host can share pre-recorded media
+    ...(isHost ? [{ id: 'media', label: isStreaming ? 'Stop Media' : 'Share Media', icon: isStreaming ? '⏹️' : '🎬' }] : []),
     { id: 'settings', label: 'Settings', icon: '⚙️' },
   ]
 
@@ -243,6 +459,16 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
       const newMuteState = !isMuted
       setIsMuted(newMuteState)
       localStream.current?.getAudioTracks().forEach(t => t.enabled = !newMuteState)
+    }
+    if (id === 'media') {
+      if (isStreaming) {
+        handleStopStream()
+      } else if (isHost) {
+        fileInputRef.current?.click()
+      } else {
+        // Guests can't start streams
+        console.log('Only the host can share media')
+      }
     }
   }
 
@@ -261,7 +487,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
   }
 
   return (
-    <motion.div 
+    <motion.div
       className="live-session-overlay meet-theme"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -271,105 +497,185 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
         {/* Top Header */}
         <header className="meet-header">
           <div className="header-left">
-            <ScrambledText 
-              text={sessionData.name} 
-              className="meet-session-name" 
+            <ScrambledText
+              text={sessionData.name}
+              className="meet-session-name"
               duration={1000}
             />
             <span className="meet-session-id">0X-{sessionData.id}</span>
           </div>
-          
+
           <div className="header-right">
-             <motion.button 
-               className={`meet-utility-btn ${participantsOpen ? 'active' : ''}`}
-               onClick={() => {
-                 setParticipantsOpen(!participantsOpen)
-                 setChatOpen(false)
-               }}
-               whileHover={{ scale: 1.1 }}
-               whileTap={{ scale: 0.9 }}
-               title="Participants"
-             >
-               👥 <span>{sessionData.members.length}</span>
-             </motion.button>
-             <motion.button 
-               className={`meet-utility-btn ${chatOpen ? 'active' : ''}`}
-               onClick={() => {
-                 setChatOpen(!chatOpen)
-                 setParticipantsOpen(false)
-               }}
-               whileHover={{ scale: 1.1 }}
-               whileTap={{ scale: 0.9 }}
-               title="Chat"
-             >
-               💬
-             </motion.button>
+            <motion.button
+              className={`meet-utility-btn ${participantsOpen ? 'active' : ''}`}
+              onClick={() => {
+                setParticipantsOpen(!participantsOpen)
+                setChatOpen(false)
+              }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              title="Participants"
+            >
+              👥 <span>{participants.length}</span>
+            </motion.button>
+            <motion.button
+              className={`meet-utility-btn ${chatOpen ? 'active' : ''}`}
+              onClick={() => {
+                setChatOpen(!chatOpen)
+                setParticipantsOpen(false)
+              }}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              title="Chat"
+            >
+              💬
+            </motion.button>
           </div>
         </header>
 
+        {/* Hidden file input for host media sharing */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="video/*,audio/*"
+          style={{ display: 'none' }}
+          onChange={handleFileSelected}
+        />
+
         {/* Video Call Grid Area */}
         <main className="meet-main">
-          <div className={`video-grid count-${sessionData.members.length}`}>
-            {sessionData.members.map((member, i) => (
-              <motion.div 
-                key={member.id} 
+          {/* HLS Video Player — takes over the full area when streaming */}
+          <AnimatePresence>
+            {isStreaming && hlsPlaylistUrl && (
+              <motion.div
+                ref={streamContainerRef}
+                key="hls-player"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className={`stream-overlay${isFullscreen ? ' stream-fullscreen' : ''}`}
+              >
+                {/* Top bar with live indicator + controls */}
+                <div className="stream-top-bar">
+                  <div className="stream-live-badge">
+                    <span className="stream-live-dot" />
+                    LIVE STREAM
+                  </div>
+                  <div className="stream-top-actions">
+                    {isHost && (
+                      <motion.button
+                        onClick={handleStopStream}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        className="stream-stop-btn"
+                      >
+                        ⏹ STOP
+                      </motion.button>
+                    )}
+                    <motion.button
+                      onClick={() => {
+                        if (!document.fullscreenElement) {
+                          streamContainerRef.current?.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {})
+                        } else {
+                          document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {})
+                        }
+                      }}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="stream-fullscreen-btn"
+                      title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}
+                    >
+                      {isFullscreen ? '⊡' : '⛶'}
+                    </motion.button>
+                  </div>
+                </div>
+                <VideoPlayer
+                  playlistUrl={hlsPlaylistUrl}
+                  isHost={!!isHost}
+                  ws={ws}
+                  onStreamEnd={() => {
+                    setHlsPlaylistUrl(null)
+                    setIsStreaming(false)
+                    setIsFullscreen(false)
+                  }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {streamLoading && (
+            <div style={{
+              color: '#0ff', fontFamily: 'monospace', fontSize: '0.75rem',
+              padding: '6px 14px', background: 'rgba(0,0,0,0.7)',
+              borderRadius: '0 0 8px 0',
+              position: 'absolute', top: 0, left: 0, zIndex: 20,
+            }}>
+              ↑ Sharing with participants…
+            </div>
+          )}
+
+          {/* Hide the video call grid when streaming media */}
+          <div className={`video-grid count-${participants.length}`} style={isStreaming ? { display: 'none' } : undefined}>
+            {participants.map((member, i) => (
+              <motion.div
+                key={member.id}
                 className="video-tile"
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: i * 0.1 }}
                 layout
               >
-                  {member.deviceId === myDeviceId ? (
-                    <>
-                      <video 
-                        autoPlay 
-                        muted 
-                        playsInline
-                        ref={el => { 
-                          if (el && localStream.current) {
-                            if (el.srcObject !== localStream.current) {
-                              console.log('Setting local video srcObject')
-                              el.srcObject = localStream.current
-                            }
-                            // Extra nudge for Chrome/Edge
-                            if (el.paused) el.play().catch(e => console.error("Play error:", e))
+                {member.deviceId === myDeviceId ? (
+                  <>
+                    <video
+                      autoPlay
+                      muted
+                      playsInline
+                      ref={el => {
+                        if (el && localStream.current) {
+                          if (el.srcObject !== localStream.current) {
+                            console.log('Setting local video srcObject')
+                            el.srcObject = localStream.current
                           }
-                        }} 
-                        className={`video-feed local ${!isVideoOn ? 'hidden' : ''}`}
-                      />
-                      {!isVideoOn && (
-                        <div className="video-avatar absolute">
-                           <div className="avatar-placeholder">{member.name[0]}</div>
-                        </div>
-                      )}
-                    </>
-                  ) : remoteStreams[member.id] ? (
-                     <video 
-                       autoPlay 
-                       ref={el => { if (el) el.srcObject = remoteStreams[member.id] }} 
-                       className="video-feed"
-                     />
-                  ) : (
-                    <div className="video-avatar">
-                       {member.avatar ? <img src={member.avatar} alt={member.name} /> : <div className="avatar-placeholder">{member.name[0]}</div>}
-                    </div>
-                  )}
-                
+                          // Extra nudge for Chrome/Edge
+                          if (el.paused) el.play().catch(e => console.error("Play error:", e))
+                        }
+                      }}
+                      className={`video-feed local ${!isVideoOn ? 'hidden' : ''}`}
+                    />
+                    {!isVideoOn && (
+                      <div className="video-avatar absolute">
+                        <div className="avatar-placeholder">{member.name[0]}</div>
+                      </div>
+                    )}
+                  </>
+                ) : remoteStreams[member.deviceId] ? (
+                  <video
+                    autoPlay
+                    ref={el => { if (el) el.srcObject = remoteStreams[member.deviceId] }}
+                    className="video-feed"
+                  />
+                ) : (
+                  <div className="video-avatar">
+                    {member.avatar ? <img src={member.avatar} alt={member.name} /> : <div className="avatar-placeholder">{member.name[0]}</div>}
+                  </div>
+                )}
+
                 <div className="tile-label">
-                   {member.deviceId === myDeviceId ? 'You' : member.name}
+                  {member.deviceId === myDeviceId ? 'You' : member.name}
                 </div>
                 {/* Simulated Audio Indicator */}
                 <div className="audio-indicator">
-                   <div className="audio-bars">
-                      {[1, 2, 3].map(barIdx => (
-                         <motion.div
-                            key={barIdx}
-                            className="bar"
-                            animate={{ height: [2, Math.random() * 8 + 4, 2] }}
-                            transition={{ repeat: Infinity, duration: 0.4 + Math.random() * 0.4 }}
-                         />
-                      ))}
-                   </div>
+                  <div className="audio-bars">
+                    {[1, 2, 3].map(barIdx => (
+                      <motion.div
+                        key={barIdx}
+                        className="bar"
+                        animate={{ height: [2, Math.random() * 8 + 4, 2] }}
+                        transition={{ repeat: Infinity, duration: 0.4 + Math.random() * 0.4 }}
+                      />
+                    ))}
+                  </div>
                 </div>
               </motion.div>
             ))}
@@ -378,7 +684,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
           {/* Floating Participants Sidebar */}
           <AnimatePresence>
             {participantsOpen && (
-              <motion.aside 
+              <motion.aside
                 className="meet-participants-sidebar"
                 initial={{ x: 400, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
@@ -390,12 +696,12 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
                   <button onClick={() => setParticipantsOpen(false)}>✕</button>
                 </div>
                 <div className="participants-list">
-                  {sessionData.members.map((member) => (
+                  {participants.map((member) => (
                     <div key={member.id} className="participant-row">
                       <div className="p-avatar">{member.name[0]}</div>
                       <span className="p-name">{member.name} {member.deviceId === myDeviceId && '(You)'}</span>
                       <div className="p-controls">
-                         🎙️ 📹
+                        🎙️ 📹
                       </div>
                     </div>
                   ))}
@@ -407,7 +713,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
           {/* Chat Sidebar */}
           <AnimatePresence>
             {chatOpen && (
-              <motion.aside 
+              <motion.aside
                 className="meet-chat-sidebar"
                 initial={{ x: 400, opacity: 0 }}
                 animate={{ x: 0, opacity: 1 }}
@@ -418,7 +724,7 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
                   <h3>Chat</h3>
                   <button onClick={() => setChatOpen(false)}>✕</button>
                 </div>
-                
+
                 <div className="chat-messages">
                   {messages.map((msg, i) => (
                     msg.type === 'system' ? (
@@ -426,9 +732,9 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
                         {msg.message}
                       </div>
                     ) : (
-                      <div key={i} className={`chat-message ${msg.sender === myName ? 'me' : ''}`}>
+                      <div key={i} className={`chat-message ${msg.sender === myDeviceId ? 'me' : ''}`}>
                         <div className="message-info">
-                          <span className="m-sender">{msg.sender}</span>
+                          <span className="m-sender">{participants.find(p => p.deviceId === msg.sender)?.name || msg.sender}</span>
                           <span className="m-time">{msg.timestamp}</span>
                         </div>
                         <div className="message-text">
@@ -442,9 +748,9 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
 
                 <div className="chat-input-area">
                   <form className="chat-form" onSubmit={handleSendMessage}>
-                    <input 
-                      type="text" 
-                      placeholder="Send a message..." 
+                    <input
+                      type="text"
+                      placeholder="Send a message..."
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
                     />
@@ -460,31 +766,31 @@ const LiveSession: React.FC<LiveSessionProps> = ({ myDeviceId, sessionData, onLe
 
         {/* Floating Control Bar */}
         <footer className="meet-footer">
-           <div className="footer-left-info">
-              {sessionData.activeSince}
-           </div>
-           
-           <div className="footer-center">
-              <PillNav 
-                items={controlItems} 
-                activeId={activeTab} 
-                onChange={handleControlChange} 
-                className="control-pills"
-              />
-              <motion.button 
-                className="end-call-btn"
-                whileHover={{ scale: 1.1, backgroundColor: '#ea4335' }}
-                whileTap={{ scale: 0.9 }}
-                onClick={onLeave}
-                title="Leave Call"
-              >
-                📞
-              </motion.button>
-           </div>
+          <div className="footer-left-info">
+            {sessionData.activeSince}
+          </div>
 
-           <div className="footer-right-info">
-              0XNET SECURE • LOCAL
-           </div>
+          <div className="footer-center">
+            <PillNav
+              items={controlItems}
+              activeId={activeTab}
+              onChange={handleControlChange}
+              className="control-pills"
+            />
+            <motion.button
+              className="end-call-btn"
+              whileHover={{ scale: 1.1, backgroundColor: '#ea4335' }}
+              whileTap={{ scale: 0.9 }}
+              onClick={onLeave}
+              title="Leave Call"
+            >
+              📞
+            </motion.button>
+          </div>
+
+          <div className="footer-right-info">
+            0XNET SECURE • LOCAL
+          </div>
         </footer>
       </div>
     </motion.div>

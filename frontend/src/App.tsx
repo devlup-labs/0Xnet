@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useState } from 'react'
+import React, { Suspense, useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import Particles from './Particles'
 import BlurText from './BlurText'
@@ -36,6 +36,7 @@ interface SessionData {
   id: string
   name: string
   hostId?: string
+  createdAt?: string
   hostIp?: string
   hostPort?: number
   members?: any[]
@@ -43,21 +44,25 @@ interface SessionData {
 
 function MainContent({ onJoin, onCreateClicked }: { onJoin: (session: SessionData) => void, onCreateClicked: () => void }) {
   const [sessions, setSessions] = useState<SessionData[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const fetchSessions = async () => {
+    const backendPort = '8080'
+    setLoading(true)
+    try {
+      const response = await fetch(`http://${window.location.hostname}:${backendPort}/session/list`)
+      if (response.ok) {
+        const data = await response.json()
+        setSessions(Array.isArray(data) ? data : [])
+      }
+    } catch (err) {
+      console.error('Failed to fetch sessions', err)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const backendPort = '8080'
-    const fetchSessions = async () => {
-      try {
-        const response = await fetch(`http://${window.location.hostname}:${backendPort}/session/list`)
-        if (response.ok) {
-          const data = await response.json()
-          setSessions(data || [])
-        }
-      } catch (err) {
-        console.error('Failed to fetch sessions', err)
-      }
-    }
-
     fetchSessions()
     const interval = setInterval(fetchSessions, 3000)
     return () => clearInterval(interval)
@@ -68,7 +73,7 @@ function MainContent({ onJoin, onCreateClicked }: { onJoin: (session: SessionDat
       <div className="intro-section">
         <div className="status-badge">
           <span className="status-dot">•</span>
-          OFFLINE READY
+          {loading ? 'SYNCING...' : 'ONLINE'}
         </div>
 
         <BlurText
@@ -90,8 +95,8 @@ function MainContent({ onJoin, onCreateClicked }: { onJoin: (session: SessionDat
       <section className="sessions-section">
         <div className="sessions-section-header">
           <h2 className="section-title">AVAILABLE SESSIONS</h2>
-          <button className="search-session-btn" onClick={() => console.log('Search sessions')}>
-            Search Session 🔍
+          <button className="search-session-btn" onClick={fetchSessions}>
+            {loading ? 'Refreshing...' : 'Refresh ↻'}
           </button>
         </div>
         <div className="sessions-container-scroll">
@@ -107,9 +112,14 @@ function MainContent({ onJoin, onCreateClicked }: { onJoin: (session: SessionDat
                     <span>{session.members?.length || 0} Connected</span>
                   </div>
                 </div>
-                <button className="join-btn" onClick={() => onJoin(session as SessionData)}>Join ▸</button>
+                <button className="join-btn" onClick={() => onJoin(session)}>Join ▸</button>
               </div>
             ))}
+            {sessions.length === 0 && !loading && (
+              <div style={{ color: '#9C90AA', gridColumn: '1 / -1', textAlign: 'center', padding: '2rem' }}>
+                No active sessions found on the network.
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -250,7 +260,7 @@ export default function App() {
         body: JSON.stringify({
           sessionId: session.id,
           deviceId: myDeviceId,
-          deviceName: 'Guest User'
+          deviceName: myData.deviceName || myData.hostname || myDeviceId
         })
       })
 
@@ -300,7 +310,7 @@ export default function App() {
               <MainContent onJoin={(s) => handleJoinSession(s)} onCreateClicked={() => setIsCreating(true)} />
             </motion.div>
           ) : (
-            <LiveSession 
+            <LiveSession
               key="live-session"
               myDeviceId={localDeviceId}
               sessionData={{
@@ -309,25 +319,25 @@ export default function App() {
                 activeSince: '00h 00m 00s',
                 hostIp: activeSession.hostIp,
                 hostPort: activeSession.hostPort,
-                members: activeSession.members && activeSession.members.length > 0 
+                members: activeSession.members && activeSession.members.length > 0
                   ? activeSession.members.map((m: any) => ({
-                      id: m.id || Math.random().toString(),
-                      deviceId: m.deviceId || 'unknown',
-                      name: m.deviceName || m.deviceId || 'Unknown',
-                      avatar: '',
-                      status: 'online',
-                      role: m.deviceName === 'Host' ? 'host' : 'guest',
-                      isMe: m.deviceId === localDeviceId
-                    }))
+                    id: m.id || Math.random().toString(),
+                    deviceId: m.deviceId || 'unknown',
+                    name: m.deviceName || m.deviceId || 'Unknown',
+                    avatar: '',
+                    status: 'online',
+                    role: m.deviceName === 'Host' ? 'host' : 'guest',
+                    isMe: m.deviceId === localDeviceId
+                  }))
                   : [
-                      { id: '1', deviceId: localDeviceId, name: 'You', avatar: '', status: 'online', role: 'host', isMe: true }
-                    ]
+                    { id: '1', deviceId: localDeviceId, name: 'You', avatar: '', status: 'online', role: 'host', isMe: true }
+                  ]
               }}
               onLeave={() => {
                 const backendPort = '8080';
                 const targetHost = activeSession.hostIp || window.location.hostname;
                 const targetPort = activeSession.hostPort || backendPort;
-                
+
                 fetch(`http://${window.location.hostname}:${backendPort}/whoami`)
                   .then(res => res.json())
                   .then(data => {
@@ -350,33 +360,33 @@ export default function App() {
         <AnimatePresence>
           {isCreating && (
             <div className="create-session-overlay">
-               <motion.div 
-                 className="create-session-panel"
-                 initial={{ opacity: 0, y: 50, scale: 0.9 }}
-                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                 exit={{ opacity: 0, y: 20, scale: 0.9 }}
-                 transition={{ type: 'spring', damping: 25 }}
-               >
-                 <h2>Create New Session</h2>
-                 <p>Give your shared 0XNET workspace a name</p>
-                 <input 
-                   autoFocus
-                   type="text" 
-                   className="session-name-input" 
-                   placeholder="e.g. Design Sync" 
-                   value={newSessionName}
-                   onChange={(e) => setNewSessionName(e.target.value)}
-                   onKeyDown={(e) => e.key === 'Enter' && handleCreateSession()}
-                 />
-                 <div className="panel-actions">
-                   <button className="cancel-btn" onClick={() => setIsCreating(false)}>Cancel</button>
-                   <button className="submit-create-btn" onClick={handleCreateSession}>Launch Session</button>
-                 </div>
-               </motion.div>
+              <motion.div
+                className="create-session-panel"
+                initial={{ opacity: 0, y: 50, scale: 0.9 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 20, scale: 0.9 }}
+                transition={{ type: 'spring', damping: 25 }}
+              >
+                <h2>Create New Session</h2>
+                <p>Give your shared 0XNET workspace a name</p>
+                <input
+                  autoFocus
+                  type="text"
+                  className="session-name-input"
+                  placeholder="e.g. Design Sync"
+                  value={newSessionName}
+                  onChange={(e) => setNewSessionName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleCreateSession()}
+                />
+                <div className="panel-actions">
+                  <button className="cancel-btn" onClick={() => setIsCreating(false)}>Cancel</button>
+                  <button className="submit-create-btn" onClick={handleCreateSession}>Launch Session</button>
+                </div>
+              </motion.div>
             </div>
           )}
         </AnimatePresence>
-        
+
         <SidePanel isOpen={panelOpen} onClose={() => setPanelOpen(false)} />
       </ErrorBoundary>
     </div>

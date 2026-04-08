@@ -82,10 +82,17 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 			})
 
 		case "offer", "answer", "ice-candidate", "renegotiate":
-			// WebRTC Signaling: Relay to others in the room
-			// Inject sender ID so the target knows who sent it
+			// WebRTC Signaling: Relay only to the intended peer.
+			targetPeerID, _ := incoming["targetPeerId"].(string)
+			if targetPeerID == "" {
+				log.Printf("WS Signaling Missing targetPeerId | type=%s sender=%s", msgType, client.DeviceID)
+				continue
+			}
+
 			incoming["sender"] = client.DeviceID
-			hub.BroadcastExcluding(incoming, client)
+			if ok := hub.SendToDevice(targetPeerID, incoming); !ok {
+				log.Printf("WS Signaling Target Not Connected | type=%s sender=%s target=%s", msgType, client.DeviceID, targetPeerID)
+			}
 
 		default:
 			log.Printf("WS Unknown Message Type: %s", msgType)

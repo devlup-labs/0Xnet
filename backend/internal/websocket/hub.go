@@ -48,6 +48,20 @@ func (h *SessionHub) BroadcastExcluding(msg interface{}, exclude *Client) {
 	}
 }
 
+func (h *SessionHub) SendToDevice(deviceID string, msg interface{}) bool {
+	h.mutex.RLock()
+	defer h.mutex.RUnlock()
+
+	for client := range h.Clients {
+		if client.DeviceID == deviceID {
+			client.Conn.WriteJSON(msg)
+			return true
+		}
+	}
+
+	return false
+}
+
 type SessionManager struct {
 	Hubs  map[string]*SessionHub
 	mutex sync.RWMutex

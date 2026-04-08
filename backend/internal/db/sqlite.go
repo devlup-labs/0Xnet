@@ -8,12 +8,10 @@ import (
 )
 
 func Connect() (*sql.DB, error) {
-	dbName := os.Getenv("DB_NAME")
-	if dbName == "" {
-		dbName = "data.db"
+	if err := os.MkdirAll("./data", 0755); err != nil {
+		return nil, err
 	}
-	db, err := sql.Open("sqlite", dbName)
-
+	db, err := sql.Open("sqlite", "./data/0xnet.db")
 	if err != nil {
 		return nil, err
 	}
@@ -27,19 +25,20 @@ func Connect() (*sql.DB, error) {
 		created_at DATETIME
 	);
 
+	CREATE TABLE IF NOT EXISTS session_members (
+		id TEXT PRIMARY KEY,
+		session_id TEXT NOT NULL,
+		device_id TEXT NOT NULL,
+		device_name TEXT,
+		joined_at DATETIME,
+		FOREIGN KEY (session_id) REFERENCES sessions(id)
+	);
+
 	CREATE TABLE IF NOT EXISTS join_requests (
 		id TEXT PRIMARY KEY,
 		session_id TEXT,
 		device_id TEXT,
 		status TEXT
-	);
-
-	CREATE TABLE IF NOT EXISTS session_members (
-		id TEXT PRIMARY KEY,
-		session_id TEXT,
-		device_id TEXT,
-		device_name TEXT,
-		joined_at DATETIME
 	);`
 
 	_, err = db.Exec(schema)

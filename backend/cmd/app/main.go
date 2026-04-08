@@ -99,6 +99,7 @@ import (
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/discovery"
 	httpapi "github.com/bhawani-prajapat2006/0Xnet/backend/internal/http"
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/service"
+	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/streaming"
 
 	"github.com/google/uuid"
 )
@@ -154,9 +155,12 @@ func main() {
 	// Start Subnet Sweep discovery loop (replaces mDNS)
 	go discovery.StartSubnetDiscoveryLoop(ctx, sessionDiscovery, port, localIP)
 
+	// Initialize stream manager
+	streamMgr := streaming.NewStreamManager()
+
 	// Start the HTTP API server
 	go func() {
-		server := httpapi.NewServer(dbConn, deviceID, sessionDiscovery, port)
+		server := httpapi.NewServer(dbConn, deviceID, sessionDiscovery, port, streamMgr)
 		server.Start()
 	}()
 
@@ -170,5 +174,6 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
 	cancel()
+	streamMgr.StopAll() // Kill any active ffmpeg processes
 	log.Println("Shutting down...")
 }
