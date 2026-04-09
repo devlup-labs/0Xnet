@@ -17,7 +17,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-func ServeWS(w http.ResponseWriter, r *http.Request) {
+func ServeWS(w http.ResponseWriter, r *http.Request, onJoin func(*Client)) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WS Upgrade Error: %v", err)
@@ -61,6 +61,10 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 		"message": username + " joined the session",
 	})
 
+	if onJoin != nil {
+		onJoin(client)
+	}
+
 	// 2. Main Message Loop
 	for {
 		var incoming map[string]interface{}
@@ -80,6 +84,11 @@ func ServeWS(w http.ResponseWriter, r *http.Request) {
 				"message":   incoming["message"],
 				"timestamp": incoming["timestamp"],
 			})
+
+		case "sync-playback":
+			// Broadcast the sync object to everyone except the sender natively (the frontend handles ignore if it wants, but we broadcast it)
+			incoming["sender"] = username
+			hub.Broadcast(incoming)
 
 		case "offer", "answer", "ice-candidate", "renegotiate":
 			// WebRTC Signaling: Relay only to the intended peer.

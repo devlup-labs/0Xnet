@@ -93,3 +93,13 @@ func DeleteSession(db *sql.DB, sessionID, hostID string) error {
 	_, err = db.Exec("DELETE FROM sessions WHERE id = ?", sessionID)
 	return err
 }
+
+// IsHost returns true if the given deviceID is the host of the session.
+func IsHost(db *sql.DB, sessionID, deviceID string) bool {
+	var hostID string
+	err := db.QueryRow("SELECT host_id FROM sessions WHERE id = ?", sessionID).Scan(&hostID)
+	if err != nil {
+		return false
+	}
+	return hostID == deviceID
+}

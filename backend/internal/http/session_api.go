@@ -128,15 +128,39 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(devices)
 }
 
-// getLocalIP returns the server's local IP address
+// getLocalIP returns the server's local IP address (works offline)
 func (s *Server) getLocalIP() string {
-	// Extract from the server's known state
-	// The server knows the port, and we can derive the IP
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+	interfaces, err := net.Interfaces()
 	if err != nil {
 		return "localhost"
 	}
-	defer conn.Close()
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	return localAddr.IP.String()
+
+	for _, iface := range interfaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+
+		for _, addr := range addrs {
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipnet.IP.To4()
+			if ip == nil {
+				continue
+			}
+			if ip[0] == 10 ||
+				(ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31) ||
+				(ip[0] == 192 && ip[1] == 168) {
+				return ip.String()
+			}
+		}
+	}
+
+	return "localhost"
 }

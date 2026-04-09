@@ -2,9 +2,12 @@ package httpapi
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
+	"time"
 
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/service"
+	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/websocket"
 )
 
 // joinSession handles POST /session/join
@@ -57,6 +60,33 @@ func (s *Server) leaveSession(w http.ResponseWriter, r *http.Request) {
 	if body.SessionID == "" || body.DeviceID == "" {
 		http.Error(w, "sessionId and deviceId are required", http.StatusBadRequest)
 		return
+	}
+
+	// Check if this is the host leaving
+	isHost := service.IsHost(s.db, body.SessionID, body.DeviceID)
+
+	if isHost {
+		// Notify all guests that the host is leaving — they have 10 seconds
+		log.Printf("🔔 Host %s leaving session %s — notifying guests", body.DeviceID, body.SessionID)
+		websocket.GlobalManager.GetHub(body.SessionID).Broadcast(map[string]interface{}{
+			"type":       "host-left",
+			"countdown":  10,
+			"message":    "Host has left. Session ending in 10 seconds…",
+		})
+
+		// Stop any active media stream
+		s.streamMgr.Stop(body.SessionID)
+
+		// Schedule cleanup after 10 seconds so guests have time to see the message
+		go func() {
+			time.Sleep(10 * time.Second)
+			// Broadcast final session-ended event
+			websocket.GlobalManager.GetHub(body.SessionID).Broadcast(map[string]interface{}{
+				"type":    "session-ended",
+				"message": "Session has been closed by the host.",
+			})
+			log.Printf("🧹 Cleaning up session %s after host departure", body.SessionID)
+		}()
 	}
 
 	sessionDeleted, err := service.LeaveSession(s.db, body.SessionID, body.DeviceID)

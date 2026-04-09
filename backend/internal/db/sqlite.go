@@ -25,15 +25,6 @@ func Connect() (*sql.DB, error) {
 		created_at DATETIME
 	);
 
-	CREATE TABLE IF NOT EXISTS session_members (
-		id TEXT PRIMARY KEY,
-		session_id TEXT NOT NULL,
-		device_id TEXT NOT NULL,
-		device_name TEXT,
-		joined_at DATETIME,
-		FOREIGN KEY (session_id) REFERENCES sessions(id)
-	);
-
 	CREATE TABLE IF NOT EXISTS join_requests (
 		id TEXT PRIMARY KEY,
 		session_id TEXT,

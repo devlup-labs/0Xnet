@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/discovery"
 	"github.com/bhawani-prajapat2006/0Xnet/backend/internal/streaming"
@@ -157,7 +158,15 @@ func (s *Server) Start() {
 	})
 
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		websocket.ServeWS(w, r)
+		websocket.ServeWS(w, r, func(client *websocket.Client) {
+			if s.streamMgr.IsStreaming(client.Session) {
+				playlistURL := fmt.Sprintf("/stream/%s/index.m3u8", client.Session)
+				client.Conn.WriteJSON(map[string]interface{}{
+					"type":        "stream-started",
+					"playlistUrl": playlistURL,
+				})
+			}
+		})
 	})
 
 	// ── Streaming Routes ────────────────────────────────────
@@ -231,11 +240,18 @@ func (s *Server) Start() {
 			return
 		}
 
-		// Notify all peers in the session that streaming has started
-		websocket.GlobalManager.GetHub(sessionID).Broadcast(map[string]string{
-			"type":        "stream-started",
-			"playlistUrl": playlistURL,
-		})
+		// Wait for ffmpeg to produce the playlist before notifying guests
+		go func() {
+			if s.streamMgr.WaitForPlaylist(sessionID, 30*time.Second) {
+				log.Printf("📡 [Stream] Broadcasting stream-started for session %s", sessionID)
+				websocket.GlobalManager.GetHub(sessionID).Broadcast(map[string]string{
+					"type":        "stream-started",
+					"playlistUrl": playlistURL,
+				})
+			} else {
+				log.Printf("⚠️ [Stream] Playlist never appeared for session %s, not broadcasting", sessionID)
+			}
+		}()
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"playlistUrl": playlistURL})
@@ -261,11 +277,18 @@ func (s *Server) Start() {
 			return
 		}
 
-		// Notify all peers in the session that streaming has started
-		websocket.GlobalManager.GetHub(body.SessionID).Broadcast(map[string]string{
-			"type":        "stream-started",
-			"playlistUrl": playlistURL,
-		})
+		// Wait for ffmpeg to produce the playlist before notifying guests
+		go func() {
+			if s.streamMgr.WaitForPlaylist(body.SessionID, 30*time.Second) {
+				log.Printf("📡 [Stream] Broadcasting stream-started for session %s", body.SessionID)
+				websocket.GlobalManager.GetHub(body.SessionID).Broadcast(map[string]string{
+					"type":        "stream-started",
+					"playlistUrl": playlistURL,
+				})
+			} else {
+				log.Printf("⚠️ [Stream] Playlist never appeared for session %s, not broadcasting", body.SessionID)
+			}
+		}()
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{"playlistUrl": playlistURL})

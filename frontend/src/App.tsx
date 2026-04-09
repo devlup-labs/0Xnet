@@ -1,9 +1,9 @@
 import React, { Suspense, useEffect, useState, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import Particles from './Particles'
-import BlurText from './BlurText'
-import LiveSession from './LiveSession'
-import ScrambledText from './ScrambledText'
+import Particles from './components/ui/Particles'
+import BlurText from './components/ui/BlurText'
+import LiveSession from './components/LiveSession/LiveSession'
+import ScrambledText from './components/ui/ScrambledText'
 import PillNav from './PillNav'
 class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { hasError: boolean }> {
   state = { hasError: false }

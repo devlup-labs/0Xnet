@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // StreamManager manages active ffmpeg HLS streams per session.
@@ -87,6 +88,39 @@ func (sm *StreamManager) Start(sessionID, filePath string) (string, error) {
 	playlistURL := fmt.Sprintf("/stream/%s/index.m3u8", sessionID)
 	log.Printf("🎬 [Stream] ffmpeg started, playlist will be at %s", playlistURL)
 	return playlistURL, nil
+}
+
+// WaitForPlaylist blocks until the HLS playlist file exists on disk
+// (i.e. ffmpeg has written the first segment). Returns false if the
+// timeout is hit or the stream was stopped before the file appeared.
+func (sm *StreamManager) WaitForPlaylist(sessionID string, timeout time.Duration) bool {
+	sm.mu.RLock()
+	info, exists := sm.streams[sessionID]
+	sm.mu.RUnlock()
+	if !exists {
+		return false
+	}
+
+	playlistPath := filepath.Join(info.outputDir, "index.m3u8")
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		if fi, err := os.Stat(playlistPath); err == nil && fi.Size() > 0 {
+			log.Printf("✅ [Stream] Playlist ready for session %s (%d bytes)", sessionID, fi.Size())
+			return true
+		}
+		// Check if stream was stopped while waiting
+		sm.mu.RLock()
+		_, stillActive := sm.streams[sessionID]
+		sm.mu.RUnlock()
+		if !stillActive {
+			return false
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+
+	log.Printf("⚠️ [Stream] Playlist wait timed out for session %s", sessionID)
+	return false
 }
 
 // Stop kills the ffmpeg process for a session and cleans up temp files.

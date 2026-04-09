@@ -12,38 +12,43 @@ import (
 	"time"
 )
 
-// getLocalIPAndSubnet returns the local IP address and its CIDR notation
+// getLocalIPAndSubnet returns the local IP address and its CIDR notation.
+// Works completely offline by enumerating network interfaces.
 func getLocalIPAndSubnet() (string, string, error) {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
+	interfaces, err := net.Interfaces()
 	if err != nil {
 		return "", "", err
 	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
-	localIP := localAddr.IP
-
-	// Find the matching network interface to get the subnet mask
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return localIP.String(), "", err
-	}
 
 	for _, iface := range interfaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+
 		addrs, err := iface.Addrs()
 		if err != nil {
 			continue
 		}
+
 		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok {
-				if ipnet.IP.Equal(localIP) {
-					return localIP.String(), ipnet.String(), nil
-				}
+			ipnet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipnet.IP.To4()
+			if ip == nil {
+				continue // skip IPv6
+			}
+			// Match private IPv4 ranges (LAN addresses)
+			if ip[0] == 10 ||
+				(ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31) ||
+				(ip[0] == 192 && ip[1] == 168) {
+				return ip.String(), ipnet.String(), nil
 			}
 		}
 	}
 
-	return localIP.String(), "", fmt.Errorf("could not find subnet for %s", localIP)
+	return "", "", fmt.Errorf("no private IPv4 address found on any interface")
 }
 
 // generateSubnetIPs returns all usable host IPs in the given CIDR range
